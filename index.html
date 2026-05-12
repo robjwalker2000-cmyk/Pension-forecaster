@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pension Forecaster</title>
+    <link rel="stylesheet" href="./styles.css?v=20260512i" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Pension projection tool</p>
+          <h1>Pension Forecaster</h1>
+          <p class="hero-copy">
+            A browser-based version of your spreadsheet with live updates, personal
+            detail import, and a year-by-year retirement drawdown view.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <label class="button secondary" for="import-file">Import details</label>
+          <input id="import-file" type="file" accept=".csv,.json" hidden />
+          <button id="toggle-panel-button" class="button secondary" type="button">Hide controls</button>
+          <select id="table-view-select" class="button secondary table-view-select" aria-label="Table view"><option value="summarised">Summarised</option><option value="detailed">Detailed</option><option value="granular">Granular</option></select>
+          <label id="granular-tax-toggle-wrap" class="toggle inline-toggle" hidden><span>Show tax fields</span><input id="granular-tax-toggle" type="checkbox" /></label>
+          <label id="granular-income-toggle-wrap" class="toggle inline-toggle" hidden><span>Show income details</span><input id="granular-income-toggle" type="checkbox" /></label>
+          <label id="granular-growth-toggle-wrap" class="toggle inline-toggle" hidden><span>Show growth breakdown</span><input id="granular-growth-toggle" type="checkbox" /></label>
+          <button id="export-table-button" class="button secondary" type="button">Export table</button>
+          <button id="export-pdf-button" class="button secondary" type="button">Export PDF</button>
+          <button id="export-button" class="button secondary" type="button">Export details</button>
+          <button id="reset-button" class="button" type="button">Reset defaults</button>
+        </div>
+      </header>
+
+      <main class="layout" id="layout">
+        <aside class="control-panel" id="control-panel">
+          <section class="panel">
+            <h2>Personal Details</h2>
+            <div class="field-grid">
+              <label><span>Current year</span><input data-field="currentYear" type="number" step="1" readonly /></label>
+              <label><span>Current age</span><input data-field="currentAge" type="number" step="1" readonly /></label>
+              <label><span>Year of birth</span><input data-field="yearOfBirth" type="number" step="1" /></label>
+              <label><span>Retirement age</span><input data-field="retirementAge" type="number" step="1" /></label>
+              <label><span>Retirement year</span><input data-field="retirementYear" type="number" step="1" readonly /></label>
+              <label><span>Total pension pot</span><input data-field="currentPot" type="number" step="1000" /></label>
+              <label><span>Already crystallised</span><input data-field="currentCrystallisedPot" type="number" step="1000" /></label>
+              <label><span>Lump sum allowance used</span><input data-field="lumpSumAllowanceUsed" type="number" step="1000" /></label>
+              <label><span>Personal savings</span><input data-field="personalSavings" type="number" step="1000" /></label>
+              <label><span>Savings growth rate</span><input data-field="personalSavingsGrowthRate" type="number" step="0.001" /></label>
+              <label><span>Own state pension</span><input data-field="ownStatePension" type="number" step="1000" /></label>
+              <label><span>Tax allowance CPI</span><input data-field="taxAllowanceCpiRate" type="number" step="0.001" /></label>
+              <label><span>Plan years</span><input data-field="planYears" type="number" step="1" /></label>
+              <label class="toggle"><span>Increase tax allowance by CPI</span><input data-field="applyTaxAllowanceCpi" type="checkbox" /></label>
+              <label class="toggle"><span>Limit plan years</span><input data-field="limitPlanYears" type="checkbox" /></label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Growth & Pot</h2>
+            <div class="field-grid">
+              <label>
+                <span>Growth scenario</span>
+                <select data-field="scenario">
+                  <option value="1">Low</option>
+                  <option value="2">Mid</option>
+                  <option value="3">High</option>
+                </select>
+              </label>
+              <label><span>Pre-retirement low</span><input data-field="growthLow" type="number" step="0.001" /></label>
+              <label><span>Pre-retirement mid</span><input data-field="growthMid" type="number" step="0.001" /></label>
+              <label><span>Pre-retirement high</span><input data-field="growthHigh" type="number" step="0.001" /></label>
+              <label><span>Post-retirement low</span><input data-field="postRetirementGrowthLow" type="number" step="0.001" /></label>
+              <label><span>Post-retirement mid</span><input data-field="postRetirementGrowthMid" type="number" step="0.001" /></label>
+              <label><span>Post-retirement high</span><input data-field="postRetirementGrowthHigh" type="number" step="0.001" /></label>
+              <label class="toggle"><span>Apply pot growth</span><input data-field="applyPotGrowth" type="checkbox" /></label>
+              <label class="toggle"><span>Take 25% in year 1</span><input data-field="take25PercentYear1" type="checkbox" /></label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Spending</h2>
+            <div class="field-grid">
+              <label><span>Income required</span><input data-field="incomeRequired" type="number" step="1000" /></label>
+              <label><span>Income after year 10</span><input data-field="incomeAfterYear10" type="number" step="1000" /></label>
+              <label><span>Household bills</span><input data-field="billsAnnual" type="number" step="1000" /></label>
+              <label><span>Holidays</span><input data-field="holidaysAnnual" type="number" step="500" /></label>
+              <label><span>Car cost</span><input data-field="carCost" type="number" step="1000" /></label>
+              <label><span>Car every N years</span><input data-field="carFrequencyYears" type="number" step="1" min="1" /></label>
+              <label><span>First car year</span><input data-field="carStartYear" type="number" step="1" min="1" /></label>
+              <label class="toggle"><span>Apply CPI to income</span><input data-field="applyCpiIncome" type="checkbox" /></label>
+              <label class="toggle"><span>Apply CPI to bills</span><input data-field="applyCpiBills" type="checkbox" /></label>
+              <label class="toggle"><span>Apply CPI to holidays</span><input data-field="applyCpiHolidays" type="checkbox" /></label>
+              <label><span>CPI rate</span><input data-field="cpiRate" type="number" step="0.001" /></label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Partner Details</h2>
+            <div class="field-grid">
+              <label><span>Partner year of birth</span><input data-field="partnerBirthYear" type="number" step="1" /></label>
+              <label><span>Partner work income</span><input data-field="partnerWorkIncome" type="number" step="1000" /></label>
+              <label><span>Partner work pension</span><input data-field="partnerWorkPension" type="number" step="1000" /></label>
+              <label><span>Partner state pension</span><input data-field="partnerStatePension" type="number" step="1000" /></label>
+              <label><span>Partner savings</span><input data-field="partnerSavings" type="number" step="1000" /></label>
+              <label><span>Partner savings growth</span><input data-field="partnerSavingsGrowthRate" type="number" step="0.001" /></label>
+              <label class="toggle"><span>CPI on partner work</span><input data-field="partnerWorkApplyCpi" type="checkbox" /></label>
+              <label><span>Partner work CPI</span><input data-field="partnerWorkCpiRate" type="number" step="0.001" /></label>
+              <label class="toggle"><span>CPI on state/work pensions</span><input data-field="statePensionApplyCpi" type="checkbox" /></label>
+              <label><span>State/work pension CPI</span><input data-field="statePensionCpiRate" type="number" step="0.001" /></label>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Optional Drawdown</h2>
+            <div class="field-grid">
+              <label class="toggle"><span>Use regular drawdown</span><input data-field="regularDrawdownEnabled" type="checkbox" /></label>
+              <label><span>Regular drawdown</span><input data-field="regularDrawdownAmount" type="number" step="1000" /></label>
+              <label><span>Regular drawdown years</span><input data-field="regularDrawdownYears" type="number" step="1" /></label>
+            </div>
+          </section>
+        </aside>
+
+        <section class="results-panel">
+          <div class="summary-grid" id="summary-grid"></div>
+
+          <section class="panel chart-panel">
+            <div class="panel-heading">
+              <h2>Projection Trend</h2>
+              <p id="chart-caption"></p>
+            </div>
+            <canvas id="projection-chart" width="900" height="320"></canvas>
+          </section>
+
+          <section class="panel table-panel">
+            <div class="panel-heading">
+              <h2>Year-by-Year Projection</h2>
+              <p id="table-caption"></p>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead id="projection-head"></thead>
+                <tbody id="projection-body"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <template id="summary-card-template">
+      <article class="summary-card">
+        <p class="summary-label"></p>
+        <p class="summary-value"></p>
+        <p class="summary-note"></p>
+      </article>
+    </template>
+
+    <script src="./app.js?v=20260512j"></script>
+  </body>
+</html>
