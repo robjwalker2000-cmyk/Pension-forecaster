@@ -10,8 +10,11 @@ Open `index.html` directly in a browser.
 
 - Lets you edit core personal details such as pension pot, current age, and retirement age.
 - Recalculates the projection instantly as assumptions change.
-- Supports import and export of personal details as JSON.
-- Shows summary cards, a trend chart, and a year-by-year projection table.
+- Supports import and export of personal details as CSV, with legacy JSON import support.
+- Shows summary cards, a trend chart, and summarised, detailed, or granular year-by-year projection tables.
+- Uses friendly percentage inputs while keeping stored rates as decimals.
+- Adds a tax optimisation mode for drawdown planning that prioritises staying within the basic-rate band, using TFLS and then savings before higher-rate drawdown where possible.
+- Exports the visible projection table to Excel, exports a separate formula workbook, and supports browser PDF export.
 
 ## Notes
 

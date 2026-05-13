@@ -74,6 +74,20 @@ h1 {
   color: var(--muted);
 }
 
+.version-badge {
+  margin: 0;
+  align-self: flex-start;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(255, 253, 249, 0.88);
+  border: 1px solid var(--line);
+  color: var(--accent);
+  font-family: "Avenir Next Condensed", "Gill Sans", sans-serif;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
@@ -95,6 +109,12 @@ h1 {
   background: var(--panel-strong);
   color: var(--text);
   border: 1px solid var(--line);
+}
+
+.formula-export-button {
+  margin-left: 14px;
+  border-color: rgba(15, 118, 110, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.12), var(--shadow);
 }
 
 .table-view-select {
@@ -246,13 +266,63 @@ select {
   margin: 0;
 }
 
-.chart-panel canvas {
+.chart-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 14px;
+  align-items: center;
+  text-align: right;
+}
+
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 12px;
+}
+
+.chart-mode-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.chart-mode-control select {
+  width: auto;
+  min-width: 118px;
+  padding: 7px 28px 7px 10px;
+  font-size: 0.92rem;
+}
+
+.chart-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.chart-frame[hidden] {
+  display: none;
+}
+
+.chart-frame canvas {
   width: 100%;
   height: auto;
   border-radius: 16px;
   background:
     linear-gradient(180deg, rgba(15, 118, 110, 0.08), transparent 60%),
     rgba(255, 255, 255, 0.78);
+}
+
+.empty-chart-message {
+  margin: 0;
+  padding: 28px;
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  color: var(--muted);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.55);
 }
 
 .table-wrap {
@@ -299,8 +369,7 @@ tbody tr:nth-child(even) {
   background: rgba(249, 243, 233, 0.55);
 }
 
-tbody tr.is-negative td[data-key="potAfterGrowth"],
-tbody tr.is-negative td[data-key="potLeft"] {
+tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
   color: var(--danger);
   font-weight: 700;
 }
@@ -429,7 +498,7 @@ tbody tr.is-negative td[data-key="potLeft"] {
     padding: 7px 8px;
   }
 
-  .chart-panel canvas {
+  .chart-frame canvas {
     break-inside: avoid;
     page-break-inside: avoid;
   }
