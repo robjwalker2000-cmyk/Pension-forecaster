@@ -13,6 +13,10 @@ const DEFAULT_STATE = {
   lumpSumAllowanceUsed: 0,
   personalSavings: 0,
   personalSavingsGrowthRate: 0.03,
+  personalIsaSavings: 0,
+  personalIsaGrowthRate: 0.03,
+  personalBankSavings: 0,
+  personalBankInterestRate: 0.03,
   planYears: 25,
   limitPlanYears: true,
   scenario: 1,
@@ -87,6 +91,8 @@ const UK_TAX_RULES = {
   basicRate: 0.2,
   higherRate: 0.4,
   additionalRate: 0.45,
+  personalSavingsAllowanceBasic: 1000,
+  personalSavingsAllowanceHigher: 500,
   standardLumpSumAllowance: 268275,
 };
 
@@ -116,6 +122,8 @@ const granularIncomeToggleWrap = document.getElementById("granular-income-toggle
 const granularIncomeToggle = document.getElementById("granular-income-toggle");
 const granularGrowthToggleWrap = document.getElementById("granular-growth-toggle-wrap");
 const granularGrowthToggle = document.getElementById("granular-growth-toggle");
+const granularCrystallisationToggleWrap = document.getElementById("granular-crystallisation-toggle-wrap");
+const granularCrystallisationToggle = document.getElementById("granular-crystallisation-toggle");
 const showPotChartToggle = document.getElementById("show-pot-chart-toggle");
 const showIncomeChartToggle = document.getElementById("show-income-chart-toggle");
 const incomeChartModeSelect = document.getElementById("income-chart-mode-select");
@@ -157,6 +165,14 @@ function normaliseState(source) {
   }
   next.currentCrystallisedPot = Math.max(0, Math.min(Number(next.currentCrystallisedPot) || 0, Number(next.currentPot) || 0));
   next.lumpSumAllowanceUsed = Math.max(0, Number(next.lumpSumAllowanceUsed) || 0);
+  if (!Number.isFinite(Number(source.personalBankSavings)) && !Number.isFinite(Number(source.personalIsaSavings))) {
+    next.personalBankSavings = Math.max(0, Number(source.personalSavings) || 0);
+    next.personalIsaSavings = 0;
+  } else {
+    next.personalBankSavings = Math.max(0, Number(next.personalBankSavings) || 0);
+    next.personalIsaSavings = Math.max(0, Number(next.personalIsaSavings) || 0);
+  }
+  next.personalSavings = next.personalIsaSavings + next.personalBankSavings;
   return next;
 }
 
@@ -173,6 +189,7 @@ function loadUiState() {
       showGranularTaxFields: Boolean(saved.showGranularTaxFields),
       showGranularIncomeFields: saved.showGranularIncomeFields !== false,
       showGranularGrowthFields: Boolean(saved.showGranularGrowthFields),
+      showGranularCrystallisationFields: Boolean(saved.showGranularCrystallisationFields),
       showPotChart: saved.showPotChart !== false,
       showIncomeChart: saved.showIncomeChart !== false,
       incomeChartMode: ["line", "stacked"].includes(saved.incomeChartMode) ? saved.incomeChartMode : "line",
@@ -184,6 +201,7 @@ function loadUiState() {
       showGranularTaxFields: false,
       showGranularIncomeFields: true,
       showGranularGrowthFields: false,
+      showGranularCrystallisationFields: false,
       showPotChart: true,
       showIncomeChart: true,
       incomeChartMode: "line",
@@ -202,12 +220,14 @@ function applyUiState() {
   granularTaxToggle.checked = Boolean(uiState.showGranularTaxFields);
   granularIncomeToggle.checked = Boolean(uiState.showGranularIncomeFields);
   granularGrowthToggle.checked = Boolean(uiState.showGranularGrowthFields);
+  granularCrystallisationToggle.checked = Boolean(uiState.showGranularCrystallisationFields);
   showPotChartToggle.checked = Boolean(uiState.showPotChart);
   showIncomeChartToggle.checked = Boolean(uiState.showIncomeChart);
   incomeChartModeSelect.value = uiState.incomeChartMode;
   granularTaxToggleWrap.hidden = uiState.tableView !== "granular";
   granularIncomeToggleWrap.hidden = uiState.tableView !== "granular";
   granularGrowthToggleWrap.hidden = uiState.tableView !== "granular";
+  granularCrystallisationToggleWrap.hidden = uiState.tableView !== "granular";
 }
 
 function growthRateForScenario(source, phase = "pre") {
@@ -235,6 +255,7 @@ function estimateUkIncomeTax(totalIncome, allowanceBase = UK_TAX_RULES.personalA
   const allowanceReduction = Math.max(0, (income - UK_TAX_RULES.allowanceTaperStarts) / 2);
   const personalAllowance = Math.max(0, allowanceBase - allowanceReduction);
   const taxableIncome = Math.max(0, income - personalAllowance);
+  const personalAllowanceUsed = Math.min(income, personalAllowance);
   const basicBand = Math.max(0, UK_TAX_RULES.basicRateLimit - personalAllowance);
   const higherBand = Math.max(0, UK_TAX_RULES.higherRateLimit - UK_TAX_RULES.basicRateLimit);
   const basicTaxable = Math.min(taxableIncome, basicBand);
@@ -255,6 +276,7 @@ function estimateUkIncomeTax(totalIncome, allowanceBase = UK_TAX_RULES.personalA
   return {
     totalTax,
     personalAllowance,
+    personalAllowanceUsed,
     taxableIncome,
     basicTaxable,
     higherTaxable,
@@ -297,6 +319,58 @@ function solveTaxableWithdrawal(otherTaxableIncome, targetNetFromPension, allowa
   return { taxableWithdrawal, taxBreakdown: estimateUkIncomeTax(otherTaxableIncome + taxableWithdrawal, allowanceBase) };
 }
 
+function personalSavingsAllowanceForIncome(taxableIncomeWithInterest) {
+  if (taxableIncomeWithInterest > UK_TAX_RULES.higherRateLimit) {
+    return 0;
+  }
+  if (taxableIncomeWithInterest > UK_TAX_RULES.basicRateLimit) {
+    return UK_TAX_RULES.personalSavingsAllowanceHigher;
+  }
+  return UK_TAX_RULES.personalSavingsAllowanceBasic;
+}
+
+function estimateBankInterestTax(baseTaxableIncome, bankInterest, allowanceBase = UK_TAX_RULES.personalAllowance) {
+  const interest = Math.max(0, Number(bankInterest) || 0);
+  if (interest <= 0) {
+    return {
+      bankInterestGross: 0,
+      savingsIncomeForPsa: Math.max(0, baseTaxableIncome),
+      personalSavingsAllowance: personalSavingsAllowanceForIncome(baseTaxableIncome),
+      bankInterestTaxable: 0,
+      bankInterestTax: 0,
+    };
+  }
+
+  const incomeWithInterest = Math.max(0, baseTaxableIncome + interest);
+  const personalSavingsAllowance = personalSavingsAllowanceForIncome(incomeWithInterest);
+  const taxableInterest = Math.max(0, interest - personalSavingsAllowance);
+  const baseTax = estimateUkIncomeTax(baseTaxableIncome, allowanceBase).totalTax;
+  const totalTax = estimateUkIncomeTax(baseTaxableIncome + taxableInterest, allowanceBase).totalTax;
+
+  return {
+    bankInterestGross: interest,
+    savingsIncomeForPsa: incomeWithInterest,
+    personalSavingsAllowance,
+    bankInterestTaxable: taxableInterest,
+    bankInterestTax: Math.max(0, totalTax - baseTax),
+  };
+}
+
+function allocateSavingsWithdrawal(amount, bankBalance, isaBalance, partnerBalance) {
+  let remaining = Math.max(0, Number(amount) || 0);
+  const fromBank = Math.min(bankBalance, remaining);
+  remaining -= fromBank;
+  const fromIsa = Math.min(isaBalance, remaining);
+  remaining -= fromIsa;
+  const fromPartner = Math.min(partnerBalance, remaining);
+
+  return {
+    bankSavingsUsed: fromBank,
+    isaSavingsUsed: fromIsa,
+    partnerSavingsUsed: fromPartner,
+  };
+}
+
 function netFromAdditionalTaxableWithdrawal(existingTaxableIncome, taxableWithdrawal, allowanceBase) {
   const baseTax = estimateUkIncomeTax(existingTaxableIncome, allowanceBase).totalTax;
   const totalTax = estimateUkIncomeTax(existingTaxableIncome + taxableWithdrawal, allowanceBase).totalTax;
@@ -328,9 +402,9 @@ function solveAdditionalTaxableWithdrawal(existingTaxableIncome, targetNet, allo
 }
 
 function calculateTaxOptimisedWithdrawal({
-  targetNetIncome,
+  targetGrossIncome,
   myOtherIncome,
-  allowanceBase,
+  expectedBankInterest = 0,
   taxFreeCashCapacity,
   savingsAvailable = 0,
   crystallisedPot,
@@ -338,36 +412,50 @@ function calculateTaxOptimisedWithdrawal({
 }) {
   const totalPotAvailable = Math.max(0, crystallisedPot + uncrystallisedPot);
   const taxableCapacity = totalPotAvailable;
-  let remainingNetIncome = Math.max(0, targetNetIncome);
+  let remainingGrossIncome = Math.max(0, targetGrossIncome);
   let taxableWithdrawal = 0;
   let taxFreeCash = 0;
   let savingsUsed = 0;
+  let remainingUncrystallisedPot = Math.max(0, uncrystallisedPot);
+  let remainingTaxFreeCashCapacity = Math.max(0, taxFreeCashCapacity);
+  let taxableFromNewTflsCrystallisation = 0;
 
-  const basicRateGrossLimit = Math.max(0, UK_TAX_RULES.basicRateLimit - myOtherIncome);
-  const basicRateWithdrawal = solveAdditionalTaxableWithdrawal(
-    myOtherIncome,
-    remainingNetIncome,
-    allowanceBase,
-    Math.min(basicRateGrossLimit, taxableCapacity),
+  const psaProtectedBasicRateLimit = Math.max(0, UK_TAX_RULES.basicRateLimit - myOtherIncome - Math.max(0, expectedBankInterest));
+  const taxableFromExistingCrystallised = Math.min(
+    remainingGrossIncome,
+    psaProtectedBasicRateLimit,
+    Math.max(0, crystallisedPot),
   );
-  taxableWithdrawal += basicRateWithdrawal;
-  remainingNetIncome -= netFromAdditionalTaxableWithdrawal(myOtherIncome, basicRateWithdrawal, allowanceBase);
+  taxableWithdrawal += taxableFromExistingCrystallised;
+  remainingGrossIncome -= taxableFromExistingCrystallised;
 
-  const taxFreeUsed = Math.min(taxFreeCashCapacity, remainingNetIncome, Math.max(0, totalPotAvailable - taxableWithdrawal));
+  const remainingBasicRateRoom = Math.max(0, psaProtectedBasicRateLimit - taxableWithdrawal);
+  const pairedTaxableFromNewCrystallisation = Math.min(
+    remainingGrossIncome * 0.75,
+    remainingBasicRateRoom,
+    remainingUncrystallisedPot * 0.75,
+    remainingTaxFreeCashCapacity * 3,
+  );
+  const pairedTaxFreeCash = pairedTaxableFromNewCrystallisation / 3;
+  taxableFromNewTflsCrystallisation = pairedTaxableFromNewCrystallisation;
+  taxableWithdrawal += pairedTaxableFromNewCrystallisation;
+  taxFreeCash += pairedTaxFreeCash;
+  remainingGrossIncome -= pairedTaxableFromNewCrystallisation + pairedTaxFreeCash;
+  remainingUncrystallisedPot -= pairedTaxableFromNewCrystallisation + pairedTaxFreeCash;
+  remainingTaxFreeCashCapacity -= pairedTaxFreeCash;
+
+  const taxFreeUsed = Math.min(remainingTaxFreeCashCapacity, remainingGrossIncome, remainingUncrystallisedPot * 0.25);
   taxFreeCash += taxFreeUsed;
-  remainingNetIncome -= taxFreeUsed;
+  remainingGrossIncome -= taxFreeUsed;
+  remainingUncrystallisedPot -= taxFreeUsed * 4;
+  remainingTaxFreeCashCapacity -= taxFreeUsed;
 
-  savingsUsed = Math.min(Math.max(0, savingsAvailable), remainingNetIncome);
-  remainingNetIncome -= savingsUsed;
+  savingsUsed = Math.min(Math.max(0, savingsAvailable), remainingGrossIncome);
+  remainingGrossIncome -= savingsUsed;
 
-  if (remainingNetIncome > 0.01) {
+  if (remainingGrossIncome > 0.01) {
     const remainingTaxableCapacity = Math.max(0, taxableCapacity - taxableWithdrawal - taxFreeCash);
-    const extraWithdrawal = solveAdditionalTaxableWithdrawal(
-      myOtherIncome + taxableWithdrawal,
-      remainingNetIncome,
-      allowanceBase,
-      remainingTaxableCapacity,
-    );
+    const extraWithdrawal = Math.min(remainingGrossIncome, remainingTaxableCapacity);
     taxableWithdrawal += extraWithdrawal;
   }
 
@@ -375,6 +463,8 @@ function calculateTaxOptimisedWithdrawal({
     taxFreeCash,
     taxableWithdrawal,
     savingsUsed,
+    taxableFromNewTflsCrystallisation,
+    psaProtectedBasicRateLimit,
   };
 }
 
@@ -387,7 +477,9 @@ function calculateProjection(source) {
   const currentUncrystallisedPot = Math.max(0, source.currentPot - source.currentCrystallisedPot);
   const retirementUncrystallisedPot = compoundAnnual(currentUncrystallisedPot, preRetirementGrowthRate, yearsToRetirement, true);
   const retirementCrystallisedPot = compoundAnnual(source.currentCrystallisedPot, preRetirementGrowthRate, yearsToRetirement, true);
-  const personalSavingsAtRetirement = compoundAnnual(source.personalSavings, source.personalSavingsGrowthRate, yearsToRetirement, true);
+  const personalIsaSavingsAtRetirement = compoundAnnual(source.personalIsaSavings, source.personalIsaGrowthRate, yearsToRetirement, true);
+  const personalBankSavingsAtRetirement = compoundAnnual(source.personalBankSavings, source.personalBankInterestRate, yearsToRetirement, true);
+  const personalSavingsAtRetirement = personalIsaSavingsAtRetirement + personalBankSavingsAtRetirement;
   const partnerSavingsAtRetirement = compoundAnnual(source.partnerSavings, source.partnerSavingsGrowthRate, yearsToRetirement, true);
   const totalSeparateSavingsAtRetirement = personalSavingsAtRetirement + partnerSavingsAtRetirement;
   const remainingLumpSumAllowanceStart = Math.max(0, UK_TAX_RULES.standardLumpSumAllowance - source.lumpSumAllowanceUsed);
@@ -398,7 +490,12 @@ function calculateProjection(source) {
   let crystallisedPot = retirementCrystallisedPot;
   let crystallisedToDate = retirementCrystallisedPot;
   let remainingLumpSumAllowance = remainingLumpSumAllowanceStart;
-  let savingsBalance = totalSeparateSavingsAtRetirement;
+  let isaSavingsBalance = personalIsaSavingsAtRetirement;
+  let bankSavingsBalance = personalBankSavingsAtRetirement;
+  let partnerSavingsBalance = partnerSavingsAtRetirement;
+  let savingsBalance = isaSavingsBalance + bankSavingsBalance + partnerSavingsBalance;
+  let totalBankInterestTax = 0;
+  let totalPsaUsed = 0;
   let depletionYear = null;
 
   for (let yearIndex = 1; yearIndex <= maxYears; yearIndex += 1) {
@@ -442,6 +539,8 @@ function calculateProjection(source) {
     const baseIncomeTotal = partnerWorkIncome + partnerStatePension + partnerWorkPension + myOtherIncome;
     const pensionNeededGross = Math.max(0, totalIncomeRequired - baseIncomeTotal);
     const allowanceBase = compoundAnnual(UK_TAX_RULES.personalAllowance, source.taxAllowanceCpiRate, yearIndex, source.applyTaxAllowanceCpi);
+    const isaInterestGross = isaSavingsBalance * source.personalIsaGrowthRate;
+    const bankInterestGross = bankSavingsBalance * source.personalBankInterestRate;
 
     const forcedTaxFreeCash = yearIndex === 1 && source.take25PercentYear1
       ? Math.min(remainingLumpSumAllowance, uncrystallisedPot * 0.25)
@@ -450,9 +549,9 @@ function calculateProjection(source) {
     const taxFreeCashCapacity = Math.min(remainingLumpSumAllowance, uncrystallisedPot * 0.25);
     const taxOptimisedWithdrawal = source.taxOptimisationMode
       ? calculateTaxOptimisedWithdrawal({
-        targetNetIncome: Math.max(pensionNeededGross, regularDrawdown),
+        targetGrossIncome: Math.max(pensionNeededGross, regularDrawdown),
         myOtherIncome,
-        allowanceBase,
+        expectedBankInterest: bankInterestGross,
         taxFreeCashCapacity: Math.max(0, taxFreeCashCapacity - forcedTaxFreeCash),
         savingsAvailable: savingsBalance,
         crystallisedPot,
@@ -489,18 +588,22 @@ function calculateProjection(source) {
 
     const myTaxableIncome = myOtherIncome + totalTaxableWithdrawal;
     const taxBreakdown = estimateUkIncomeTax(myTaxableIncome, allowanceBase);
-    const estimatedTax = taxBreakdown.totalTax;
-    const taxableAfterTax = Math.max(0, myTaxableIncome - estimatedTax - myOtherIncome);
+    const bankInterestTaxBreakdown = estimateBankInterestTax(myTaxableIncome, bankInterestGross, allowanceBase);
+    const estimatedTax = taxBreakdown.totalTax + bankInterestTaxBreakdown.bankInterestTax;
+    totalBankInterestTax += bankInterestTaxBreakdown.bankInterestTax;
+    totalPsaUsed += Math.min(bankInterestTaxBreakdown.bankInterestGross, bankInterestTaxBreakdown.personalSavingsAllowance);
+    const taxableAfterTax = Math.max(0, myTaxableIncome - taxBreakdown.totalTax - myOtherIncome);
     const sourcedFromSavings = source.taxOptimisationMode
       ? Math.min(savingsBalance, taxOptimisedWithdrawal.savingsUsed)
       : 0;
+    const savingsAllocation = allocateSavingsWithdrawal(sourcedFromSavings, bankSavingsBalance, isaSavingsBalance, partnerSavingsBalance);
     const incomeTotal = baseIncomeTotal + taxFreeCashActual;
-    const incomeCovered = incomeTotal + taxableAfterTax + sourcedFromSavings;
+    const incomeCovered = incomeTotal + totalTaxableWithdrawal + sourcedFromSavings;
     const householdBills = compoundAnnual(source.billsAnnual, source.cpiRate, yearIndex, source.applyCpiBills);
     const excessNet = totalIncomeRequired - estimatedTax - householdBills - holidays;
 
     const totalDesignated = designatedForTaxFree + extraDesignationForTaxable;
-    const crystallisedToDateCurrent = crystallisedToDate + totalDesignated;
+    const crystallisedToDateCurrent = crystallisedToDate + designatedForTaxFree;
     const openingPot = uncrystallisedPot + crystallisedPot;
     const uncrystallisedBeforeGrowth = Math.max(0, uncrystallisedPot - totalDesignated);
     const crystallisedBeforeGrowth = Math.max(0, crystallisedPot + newCrystallisedFromTaxFree + extraDesignationForTaxable - totalTaxableWithdrawal);
@@ -518,7 +621,10 @@ function calculateProjection(source) {
     const potChange = growth - totalWithdrawn;
 
     remainingLumpSumAllowance = Math.max(0, remainingLumpSumAllowance - taxFreeCashActual);
-    savingsBalance = Math.max(0, savingsBalance - sourcedFromSavings);
+    bankSavingsBalance = Math.max(0, bankSavingsBalance + bankInterestGross - bankInterestTaxBreakdown.bankInterestTax - savingsAllocation.bankSavingsUsed);
+    isaSavingsBalance = Math.max(0, isaSavingsBalance + isaInterestGross - savingsAllocation.isaSavingsUsed);
+    partnerSavingsBalance = Math.max(0, partnerSavingsBalance + (partnerSavingsBalance * source.partnerSavingsGrowthRate) - savingsAllocation.partnerSavingsUsed);
+    savingsBalance = bankSavingsBalance + isaSavingsBalance + partnerSavingsBalance;
 
     if (depletionYear === null && totalPotAfterGrowth < 0.01) {
       depletionYear = { calendarYear, age, yearIndex };
@@ -543,13 +649,27 @@ function calculateProjection(source) {
       regularDrawdown,
       taxFreeCash: taxFreeCashActual,
       sourcedFromSavings,
+      bankSavingsUsed: savingsAllocation.bankSavingsUsed,
+      isaSavingsUsed: savingsAllocation.isaSavingsUsed,
+      partnerSavingsUsed: savingsAllocation.partnerSavingsUsed,
+      isaInterestGross,
+      bankInterestGross: bankInterestTaxBreakdown.bankInterestGross,
+      savingsIncomeForPsa: bankInterestTaxBreakdown.savingsIncomeForPsa,
+      personalSavingsAllowance: bankInterestTaxBreakdown.personalSavingsAllowance,
+      personalSavingsAllowanceUsed: Math.min(bankInterestTaxBreakdown.bankInterestGross, bankInterestTaxBreakdown.personalSavingsAllowance),
+      bankInterestTaxable: bankInterestTaxBreakdown.bankInterestTaxable,
+      bankInterestTax: bankInterestTaxBreakdown.bankInterestTax,
+      psaProtectedTaxableWithdrawalLimit: taxOptimisedWithdrawal?.psaProtectedBasicRateLimit ?? Math.max(0, UK_TAX_RULES.basicRateLimit - myOtherIncome - bankInterestGross),
       grossPensionWithdrawal: totalTaxableWithdrawal,
+      taxableFromNewTflsCrystallisation: taxOptimisedWithdrawal?.taxableFromNewTflsCrystallisation ?? 0,
       taxableWithdrawal: totalTaxableWithdrawal,
       additionalTaxableWithdrawal,
       taxableAfterTax,
       estimatedTax,
       openingPot,
+      taxableIncomeBeforeAllowance: myTaxableIncome,
       assumedTaxAllowance: taxBreakdown.personalAllowance,
+      personalAllowanceUsed: taxBreakdown.personalAllowanceUsed,
       taxedAmount: taxBreakdown.taxableIncome,
       basicRateTaxable: taxBreakdown.basicTaxable,
       higherRateTaxable: taxBreakdown.higherTaxable,
@@ -564,7 +684,7 @@ function calculateProjection(source) {
       uncrystallisedPot: uncrystallisedAfterGrowth,
       crystallisedPot: crystallisedToDateCurrent,
       crystallisedFundLeft: crystallisedAfterGrowth,
-      newlyCrystallised: totalDesignated,
+      newlyCrystallised: designatedForTaxFree,
       totalPotBeforeGrowth,
       totalPotAfterGrowth,
       growth,
@@ -572,6 +692,10 @@ function calculateProjection(source) {
       potChange,
       remainingLumpSumAllowance,
       savingsLeft: savingsBalance,
+      isaSavingsLeft: isaSavingsBalance,
+      bankSavingsLeft: bankSavingsBalance,
+      partnerSavingsLeft: partnerSavingsBalance,
+      taxableDrawdownDesignated: extraDesignationForTaxable,
     });
 
     uncrystallisedPot = uncrystallisedAfterGrowth;
@@ -595,8 +719,12 @@ function calculateProjection(source) {
     retirementCrystallisedPot,
     totalRetirementPot: retirementUncrystallisedPot + retirementCrystallisedPot,
     personalSavingsAtRetirement,
+    personalIsaSavingsAtRetirement,
+    personalBankSavingsAtRetirement,
     partnerSavingsAtRetirement,
     totalSeparateSavingsAtRetirement,
+    totalBankInterestTax,
+    totalPsaUsed,
     taxFreeLumpSum,
     remainingLumpSumAllowanceStart,
     depletionYear,
@@ -658,6 +786,7 @@ function syncForm() {
 function renderSummary(projection) {
   const lastRow = projection.rows[projection.rows.length - 1];
   const totalTaxPaid = projection.rows.reduce((sum, row) => sum + row.estimatedTax, 0);
+  const totalTflsTaken = projection.rows.reduce((sum, row) => sum + row.taxFreeCash, 0);
   const cards = [
     {
       label: "Retirement year",
@@ -668,11 +797,6 @@ function renderSummary(projection) {
       label: "Pot at retirement",
       value: formatCurrency(projection.totalRetirementPot),
       note: `${PERCENT.format(projection.preRetirementGrowthRate)} before retirement, ${PERCENT.format(projection.postRetirementGrowthRate)} after retirement`,
-    },
-    {
-      label: "Separate savings total",
-      value: formatCurrency(projection.totalSeparateSavingsAtRetirement),
-      note: `Available to tax optimisation: yours ${formatCurrency(projection.personalSavingsAtRetirement)}, partner ${formatCurrency(projection.partnerSavingsAtRetirement)}`,
     },
     {
       label: "Uncrystallised at retirement",
@@ -692,6 +816,11 @@ function renderSummary(projection) {
         : "Pot remains above zero within the displayed plan",
     },
     {
+      label: "Savings at plan end",
+      value: formatCurrency(lastRow?.savingsLeft ?? projection.totalSeparateSavingsAtRetirement),
+      note: `ISA ${formatCurrency(lastRow?.isaSavingsLeft ?? projection.personalIsaSavingsAtRetirement)}, bank ${formatCurrency(lastRow?.bankSavingsLeft ?? projection.personalBankSavingsAtRetirement)}, partner ${formatCurrency(lastRow?.partnerSavingsLeft ?? projection.partnerSavingsAtRetirement)}`,
+    },
+    {
       label: "Total tax paid",
       value: formatCurrency(totalTaxPaid),
       note: `Across ${NUMBER.format(projection.rows.length)} retirement years shown`,
@@ -702,9 +831,34 @@ function renderSummary(projection) {
       note: `Starting allowance left ${formatCurrency(projection.remainingLumpSumAllowanceStart)}`,
     },
     {
+      label: "Total TFLS taken",
+      value: formatCurrency(totalTflsTaken),
+      note: `Across ${NUMBER.format(projection.rows.length)} retirement years shown`,
+    },
+    {
+      label: "Separate savings total",
+      value: formatCurrency(projection.totalSeparateSavingsAtRetirement),
+      note: `ISA ${formatCurrency(projection.personalIsaSavingsAtRetirement)}, bank ${formatCurrency(projection.personalBankSavingsAtRetirement)}, partner ${formatCurrency(projection.partnerSavingsAtRetirement)}`,
+    },
+    {
+      label: "ISA savings at retirement",
+      value: formatCurrency(projection.personalIsaSavingsAtRetirement),
+      note: `Tax-free growth rate ${PERCENT.format(state.personalIsaGrowthRate)}`,
+    },
+    {
+      label: "Bank savings at retirement",
+      value: formatCurrency(projection.personalBankSavingsAtRetirement),
+      note: `Interest rate ${PERCENT.format(state.personalBankInterestRate)}`,
+    },
+    {
+      label: "Savings interest tax",
+      value: formatCurrency(projection.totalBankInterestTax),
+      note: `PSA used ${formatCurrency(projection.totalPsaUsed)} across projected years`,
+    },
+    {
       label: "My savings at retirement",
       value: formatCurrency(projection.personalSavingsAtRetirement),
-      note: `Growth rate ${PERCENT.format(state.personalSavingsGrowthRate)}`,
+      note: `ISA + bank before retirement`,
     },
     {
       label: "Partner savings at retirement",
@@ -736,24 +890,17 @@ function getTableColumns() {
     ["age", "Age"],
     ["incomeRequired", "Gross income required"],
     ["carCost", "Car"],
-    ["totalIncomeRequired", "Income needed"],
     ["partnerIncome", "Partner work income"],
     ["partnerStatePension", "Partner state pension"],
     ["partnerWorkPension", "Partner work pension"],
-    ["ownStatePension", "My state pension"],
     ["taxFreeCash", "TFLS (Tax Free Lump Sum)"],
     ["sourcedFromSavings", "Sourced from Savings"],
     ["incomeTotal", "Income total"],
     ["pensionNeededGross", "From my pension"],
-    ["grossPensionWithdrawal", "Gross taxable withdrawn"],
     ["holidays", "Holidays"],
     ["householdBills", "Bills"],
     ["estimatedTax", "Estimated tax"],
     ["excessNet", "Free cash"],
-    ["uncrystallisedPot", "Uncrystallised left"],
-    ["crystallisedPot", "Crystallised to date"],
-    ["totalPotAfterGrowth", "Pot after growth"],
-    ["remainingLumpSumAllowance", "LSA left"],
     ["savingsLeft", "Savings left"],
   ];
   const summarisedColumns = [
@@ -763,15 +910,60 @@ function getTableColumns() {
     ["incomeRequired", "Gross income required"],
     ["sourcedFromSavings", "Sourced from Savings"],
     ["incomeTotal", "Total income"],
-    ["grossPensionWithdrawal", "Gross taxable withdrawn"],
+    ["grossPensionWithdrawal", "Taxable pension withdrawn"],
     ["estimatedTax", "Estimated tax"],
     ["excessNet", "Free cash"],
     ["totalPotAfterGrowth", "Pot after growth"],
   ];
-  const detailedColumnsWithoutIncomeBreakdown = detailedColumns.filter(([key]) => !["partnerIncome", "partnerStatePension", "partnerWorkPension", "ownStatePension", "taxFreeCash", "sourcedFromSavings"].includes(key));
-  const granularBaseColumns = uiState.showGranularIncomeFields ? detailedColumns : detailedColumnsWithoutIncomeBreakdown;
+  const granularBaseDetailColumns = [
+    ["yearIndex", "Year"],
+    ["calendarYear", "Calendar"],
+    ["age", "Age"],
+    ["incomeRequired", "Gross income required"],
+    ["carCost", "Car"],
+    ["totalIncomeRequired", "Income needed"],
+    ["partnerIncome", "Partner work income"],
+    ["partnerStatePension", "Partner state pension"],
+    ["partnerWorkPension", "Partner work pension"],
+    ["ownStatePension", "My state pension"],
+    ["taxFreeCash", "TFLS (Tax Free Lump Sum)"],
+    ["sourcedFromSavings", "Sourced from Savings"],
+    ["incomeTotal", "Income total"],
+    ["pensionNeededGross", "From my pension"],
+    ["grossPensionWithdrawal", "Taxable pension withdrawn"],
+    ["taxableFromNewTflsCrystallisation", "Taxable drawdown linked to TFLS"],
+    ["taxableDrawdownDesignated", "Crystallised for taxable drawdown"],
+    ["holidays", "Holidays"],
+    ["householdBills", "Bills"],
+    ["estimatedTax", "Estimated tax"],
+    ["excessNet", "Free cash"],
+    ["uncrystallisedPot", "Uncrystallised left"],
+    ["crystallisedPot", "TFLS crystallised to date"],
+    ["totalPotAfterGrowth", "Pot after growth"],
+    ["remainingLumpSumAllowance", "LSA left"],
+    ["savingsLeft", "Savings left"],
+  ];
+  const granularCrystallisationKeys = [
+    "uncrystallisedPot",
+    "crystallisedPot",
+    "newlyCrystallised",
+    "taxableFromNewTflsCrystallisation",
+    "taxableDrawdownDesignated",
+  ];
+  const detailedColumnsWithoutIncomeBreakdown = granularBaseDetailColumns.filter(([key]) => ![
+    "partnerIncome",
+    "partnerStatePension",
+    "partnerWorkPension",
+    "ownStatePension",
+    "taxFreeCash",
+    "sourcedFromSavings",
+  ].includes(key));
+  const granularBaseColumns = uiState.showGranularIncomeFields ? granularBaseDetailColumns : detailedColumnsWithoutIncomeBreakdown;
+  const granularBaseColumnsWithoutCrystallisation = granularBaseColumns.filter(([key]) => !granularCrystallisationKeys.includes(key));
   const granularTaxColumns = [
+    ["taxableIncomeBeforeAllowance", "Taxable income before allowance"],
     ["assumedTaxAllowance", "Assumed allowance"],
+    ["personalAllowanceUsed", "Allowance used"],
     ["taxedAmount", "Taxed amount"],
     ["basicRateTaxable", "Basic-rate taxed"],
     ["higherRateTaxable", "Higher-rate taxed"],
@@ -789,14 +981,38 @@ function getTableColumns() {
     ["totalPotBeforeGrowth", "Pot before growth"],
     ["totalPotAfterGrowth", "Pot after growth"],
   ];
+  const granularSavingsColumns = [
+    ["isaInterestGross", "ISA interest/growth"],
+    ["bankInterestGross", "Bank interest"],
+    ["savingsIncomeForPsa", "Income for PSA"],
+    ["psaProtectedTaxableWithdrawalLimit", "PSA-protected taxable limit"],
+    ["personalSavingsAllowance", "PSA available"],
+    ["personalSavingsAllowanceUsed", "PSA used"],
+    ["bankInterestTaxable", "Bank interest taxable"],
+    ["bankInterestTax", "Bank interest tax"],
+    ["bankSavingsUsed", "Bank savings used"],
+    ["isaSavingsUsed", "ISA savings used"],
+    ["partnerSavingsUsed", "Partner savings used"],
+    ["bankSavingsLeft", "Bank savings left"],
+    ["isaSavingsLeft", "ISA savings left"],
+    ["partnerSavingsLeft", "Partner savings left"],
+  ];
+  const granularCrystallisationColumns = [
+    ["uncrystallisedPot", "Uncrystallised left"],
+    ["crystallisedPot", "TFLS crystallised to date"],
+    ["newlyCrystallised", "New TFLS crystallised"],
+    ["taxableFromNewTflsCrystallisation", "Taxable drawdown linked to TFLS"],
+    ["taxableDrawdownDesignated", "Crystallised for taxable drawdown"],
+  ];
   const granularExtraColumns = [
-    ["newlyCrystallised", "New crystallised"],
     ["crystallisedFundLeft", "Crystallised fund left"],
   ];
   const granularColumns = [
-    ...granularBaseColumns,
+    ...granularBaseColumnsWithoutCrystallisation,
+    ...granularSavingsColumns,
     ...(uiState.showGranularTaxFields ? granularTaxColumns : []),
     ...(uiState.showGranularGrowthFields ? granularGrowthColumns : []),
+    ...(uiState.showGranularCrystallisationFields ? granularCrystallisationColumns : []),
     ...granularExtraColumns,
   ];
 
@@ -821,19 +1037,36 @@ function getColumnCalculationNote(key, label) {
     ownStatePension: 'Your state pension after trigger age and CPI rules.',
     taxFreeCash: 'Tax Free Lump Sum taken from available uncrystallised pension funds and tested against remaining lump sum allowance.',
     sourcedFromSavings: 'Savings used in tax optimisation mode to avoid or reduce higher-rate taxable pension drawdown.',
+    bankSavingsUsed: 'Savings withdrawal sourced from taxable bank savings first.',
+    isaSavingsUsed: 'Savings withdrawal sourced from ISA after bank savings.',
+    partnerSavingsUsed: 'Savings withdrawal sourced from partner savings after personal bank and ISA savings.',
+    isaInterestGross: 'Annual ISA interest/growth, treated as tax-free.',
+    bankInterestGross: 'Annual bank interest before tax.',
+    savingsIncomeForPsa: 'Your taxable income plus bank interest. This determines whether PSA is £1,000, £500, or £0.',
+    psaProtectedTaxableWithdrawalLimit: 'Taxable pension withdrawal limit used by tax optimisation to keep taxable income plus bank interest within the basic-rate band where possible.',
+    personalSavingsAllowance: 'Personal Savings Allowance available based on the tax band after bank interest.',
+    personalSavingsAllowanceUsed: 'Bank interest covered by the Personal Savings Allowance.',
+    bankInterestTaxable: 'Bank interest above the Personal Savings Allowance.',
+    bankInterestTax: 'Estimated income tax due on taxable bank interest.',
+    bankSavingsLeft: 'Bank savings left after interest, interest tax, and any savings withdrawal.',
+    isaSavingsLeft: 'ISA savings left after tax-free growth and any savings withdrawal.',
+    partnerSavingsLeft: 'Partner savings left after growth and any savings withdrawal.',
     incomeTotal: 'Partner work income + partner state pension + partner work pension + my state pension + TFLS taken that year.',
     pensionNeededGross: 'Income needed - base income total before pension withdrawals.',
-    grossPensionWithdrawal: 'Taxable pension withdrawn only.',
+    grossPensionWithdrawal: 'Gross taxable pension withdrawal only. TFLS is excluded from this figure.',
+    taxableFromNewTflsCrystallisation: 'Taxable drawdown paid from the 75% crystallised slice created when same-year TFLS is taken.',
     holidays: 'Holiday cost after CPI rules.',
     householdBills: 'Bills after CPI rules.',
     estimatedTax: 'UK income tax estimate on my taxable income for the year.',
     excessNet: 'Free cash = total income required - estimated tax - bills - holidays.',
     uncrystallisedPot: 'Uncrystallised fund left after withdrawals and annual growth.',
-    crystallisedPot: 'Total crystallised to date, including prior years.',
+    crystallisedPot: 'Total crystallised for TFLS to date, including prior years.',
     totalPotAfterGrowth: 'Pot before growth + Growth added.',
     remainingLumpSumAllowance: 'Previous LSA left - TFLS taken.',
     savingsLeft: 'Separate personal and partner savings left after any tax optimisation use.',
+    taxableIncomeBeforeAllowance: 'My state pension + taxable pension withdrawn. TFLS, savings, and partner income are excluded.',
     assumedTaxAllowance: 'Allowance base after optional tax-allowance CPI and tapering.',
+    personalAllowanceUsed: 'The part of my taxable income covered by the personal allowance.',
     taxedAmount: 'My taxable income - assumed allowance.',
     basicRateTaxable: 'Taxed amount falling in the basic-rate band.',
     higherRateTaxable: 'Taxed amount falling in the higher-rate band.',
@@ -847,7 +1080,8 @@ function getColumnCalculationNote(key, label) {
     openingPot: 'Prior year pot after growth, or retirement opening pot in year 1.',
     withdrawalsTaken: 'TFLS + taxable drawdown taken from the pot.',
     totalPotBeforeGrowth: 'Opening pot - Withdrawals taken.',
-    newlyCrystallised: 'Crystallised for TFLS plus any extra crystallised for taxable drawdown.',
+    newlyCrystallised: 'TFLS crystallisation only: TFLS taken x 4, capped by available uncrystallised funds.',
+    taxableDrawdownDesignated: 'Extra uncrystallised funds crystallised first so taxable pension drawdown can be paid when linked TFLS is unavailable or already exhausted.',
     crystallisedFundLeft: 'Crystallised fund still available after withdrawals and growth.',
   };
   return `${label}: ${notes[key] || 'See projection logic for this column.'}`;
@@ -1067,7 +1301,7 @@ function renderStackedIncomeChartCanvas({ canvas, projection }) {
     { key: "partnerWorkPension", label: "Partner work pension", color: "#65a30d" },
     { key: "ownStatePension", label: "My state pension", color: "#0f766e" },
     { key: "taxFreeCash", label: "TFLS", color: "#f59e0b" },
-    { key: "taxableAfterTax", label: "Taxable pension after tax", color: "#7c3aed" },
+    { key: "grossPensionWithdrawal", label: "Taxable pension withdrawn", color: "#7c3aed" },
     { key: "sourcedFromSavings", label: "Savings", color: "#db2777" },
   ];
   const needSeries = { key: "totalIncomeRequired", label: "Income needed", color: "#b45309", dash: [7, 5] };
@@ -1356,7 +1590,7 @@ function exportFormulaWorkbookToExcel() {
     ["sourcedFromSavings", "Sourced from Savings"],
     ["incomeTotal", "Income total"],
     ["pensionNeededGross", "From my pension"],
-    ["grossPensionWithdrawal", "Gross taxable withdrawn"],
+    ["grossPensionWithdrawal", "Taxable pension withdrawn"],
     ["holidays", "Holidays"],
     ["householdBills", "Bills"],
     ["estimatedTax", "Estimated tax"],
@@ -1420,14 +1654,17 @@ function exportFormulaWorkbookToExcel() {
   const valueFor = (row, key) => normaliseMoney(row[key] ?? 0);
   const formulaFor = (row, rowIndex, rowNumber, key) => {
     const previousRow = rowIndex > 0 ? rowNumber - 1 : null;
-    const targetNet = `MAX(0,${cell("totalIncomeRequired", rowNumber)}-SUM(${cell("partnerIncome", rowNumber)}:${cell("ownStatePension", rowNumber)}))`;
+    const targetGross = `MAX(0,${cell("totalIncomeRequired", rowNumber)}-SUM(${cell("partnerIncome", rowNumber)}:${cell("ownStatePension", rowNumber)}))`;
     const taxableIncome = `${cell("ownStatePension", rowNumber)}+${cell("grossPensionWithdrawal", rowNumber)}`;
     const taxFormula = `LET(myTax,${taxableIncome},pa,MAX(0,${assumptionRef["Personal allowance"]}-MAX(0,(myTax-${assumptionRef["Allowance taper starts"]})/2)),taxable,MAX(0,myTax-pa),basicBand,MAX(0,${assumptionRef["Basic rate limit"]}-pa),higherBand,${assumptionRef["Higher rate limit"]}-${assumptionRef["Basic rate limit"]},MIN(taxable,basicBand)*${assumptionRef["Basic rate"]}+MIN(MAX(0,taxable-basicBand),higherBand)*${assumptionRef["Higher rate"]}+MAX(0,taxable-basicBand-higherBand)*${assumptionRef["Additional rate"]})`;
     const priorPot = previousRow ? cell("totalPotAfterGrowth", previousRow) : `${assumptionRef["Starting uncrystallised pot"]}+${assumptionRef["Starting crystallised pot"]}`;
     const priorLsa = previousRow ? cell("remainingLumpSumAllowance", previousRow) : assumptionRef["Starting lump sum allowance"];
     const priorSavings = previousRow ? cell("savingsLeft", previousRow) : assumptionRef["Starting savings"];
-    const basicRateWithdrawal = `MIN(MAX(0,${assumptionRef["Basic rate limit"]}-${cell("ownStatePension", rowNumber)}),${cell("pensionNeededGross", rowNumber)}/(1-${assumptionRef["Basic rate"]}))`;
-    const taxOptimisedTfls = `MIN(${priorLsa},MAX(0,${cell("openingPot", rowNumber)}-${basicRateWithdrawal})*0.25,MAX(0,${targetNet}-${basicRateWithdrawal}*(1-${assumptionRef["Basic rate"]})))`;
+    const basicRateWithdrawalLimit = `MAX(0,${assumptionRef["Basic rate limit"]}-${cell("ownStatePension", rowNumber)})`;
+    const pairedTaxableWithdrawal = `MIN(${targetGross}*0.75,${basicRateWithdrawalLimit},${cell("openingPot", rowNumber)}*0.75,${priorLsa}*3)`;
+    const pairedTfls = `(${pairedTaxableWithdrawal})/3`;
+    const standaloneTfls = `MIN(MAX(0,${priorLsa}-(${pairedTfls})),MAX(0,${cell("openingPot", rowNumber)}-(${pairedTaxableWithdrawal})-(${pairedTfls}))*0.25,MAX(0,${targetGross}-(${pairedTaxableWithdrawal})-(${pairedTfls})))`;
+    const taxOptimisedTfls = `(${pairedTfls})+(${standaloneTfls})`;
     const standardTfls = `IF(AND(${assumptionRef["Take 25% in year 1"]}=1,${cell("yearIndex", rowNumber)}=1),MIN(${priorLsa},${cell("openingPot", rowNumber)}*0.25),IF(AND(${assumptionRef["Use regular drawdown"]}=1,${cell("yearIndex", rowNumber)}<=${assumptionRef["Regular drawdown years"]}),MIN(${priorLsa},${assumptionRef["Regular drawdown"]},${cell("openingPot", rowNumber)}*0.25),0))`;
     const formulas = {
       yearIndex: rowIndex === 0 ? "=1" : `=${cell("yearIndex", previousRow)}+1`,
@@ -1441,10 +1678,10 @@ function exportFormulaWorkbookToExcel() {
       partnerWorkPension: `=IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}>67,IF(${assumptionRef["Apply CPI to state/work pensions"]}=1,${assumptionRef["Partner work pension"]}*POWER(1+${assumptionRef["State/work pension CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner work pension"]}),0)`,
       ownStatePension: `=IF(${cell("age", rowNumber)}>67,IF(${assumptionRef["Apply CPI to state/work pensions"]}=1,${assumptionRef["Own state pension"]}*POWER(1+${assumptionRef["State/work pension CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Own state pension"]}),0)`,
       taxFreeCash: `=IF(${assumptionRef["Tax optimisation mode"]}=1,${taxOptimisedTfls},${standardTfls})`,
-      sourcedFromSavings: `=IF(${assumptionRef["Tax optimisation mode"]}=1,MIN(${priorSavings},MAX(0,${targetNet}-${cell("taxFreeCash", rowNumber)}-${cell("grossPensionWithdrawal", rowNumber)}*(1-${assumptionRef["Basic rate"]}))),0)`,
+      sourcedFromSavings: `=IF(${assumptionRef["Tax optimisation mode"]}=1,MIN(${priorSavings},MAX(0,${targetGross}-${cell("taxFreeCash", rowNumber)}-${cell("grossPensionWithdrawal", rowNumber)})),0)`,
       incomeTotal: `=SUM(${cell("partnerIncome", rowNumber)}:${cell("ownStatePension", rowNumber)})+${cell("taxFreeCash", rowNumber)}`,
-      pensionNeededGross: `=${targetNet}`,
-      grossPensionWithdrawal: `=IF(${assumptionRef["Tax optimisation mode"]}=1,${basicRateWithdrawal},MAX(0,${cell("pensionNeededGross", rowNumber)}-${cell("taxFreeCash", rowNumber)}))`,
+      pensionNeededGross: `=${targetGross}`,
+      grossPensionWithdrawal: `=IF(${assumptionRef["Tax optimisation mode"]}=1,${pairedTaxableWithdrawal},MAX(0,${cell("pensionNeededGross", rowNumber)}-${cell("taxFreeCash", rowNumber)}))`,
       holidays: `=IF(${assumptionRef["Apply CPI to holidays"]}=1,${assumptionRef["Holidays annual"]}*POWER(1+${assumptionRef["CPI rate"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Holidays annual"]})`,
       householdBills: `=IF(${assumptionRef["Apply CPI to bills"]}=1,${assumptionRef["Bills annual"]}*POWER(1+${assumptionRef["CPI rate"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Bills annual"]})`,
       estimatedTax: `=${taxFormula}`,
@@ -1599,6 +1836,12 @@ granularIncomeToggle.addEventListener("change", () => {
 
 granularGrowthToggle.addEventListener("change", () => {
   uiState.showGranularGrowthFields = granularGrowthToggle.checked;
+  saveUiState();
+  render();
+});
+
+granularCrystallisationToggle.addEventListener("change", () => {
+  uiState.showGranularCrystallisationFields = granularCrystallisationToggle.checked;
   saveUiState();
   render();
 });
