@@ -786,6 +786,7 @@ function syncForm() {
 function renderSummary(projection) {
   const lastRow = projection.rows[projection.rows.length - 1];
   const totalTaxPaid = projection.rows.reduce((sum, row) => sum + row.estimatedTax, 0);
+  const averageTaxPerYear = projection.rows.length > 0 ? totalTaxPaid / projection.rows.length : 0;
   const totalTflsTaken = projection.rows.reduce((sum, row) => sum + row.taxFreeCash, 0);
   const cards = [
     {
@@ -823,7 +824,7 @@ function renderSummary(projection) {
     {
       label: "Total tax paid",
       value: formatCurrency(totalTaxPaid),
-      note: `Across ${NUMBER.format(projection.rows.length)} retirement years shown`,
+      note: `Across ${NUMBER.format(projection.rows.length)} retirement years shown, ${formatCurrency(averageTaxPerYear)} yearly average`,
     },
     {
       label: "Lump sum allowance left",
