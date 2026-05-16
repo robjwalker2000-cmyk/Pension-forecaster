@@ -35,7 +35,7 @@ select {
 }
 
 .page-shell {
-  width: min(1440px, calc(100% - 32px));
+  width: min(1800px, calc(100% - 32px));
   margin: 0 auto;
   padding: 28px 0 40px;
 }
@@ -68,6 +68,13 @@ h1 {
   line-height: 0.94;
 }
 
+.title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
 .hero-copy,
 .panel-heading p,
 .summary-note {
@@ -76,7 +83,6 @@ h1 {
 
 .version-badge {
   margin: 0;
-  align-self: flex-start;
   padding: 10px 14px;
   border-radius: 999px;
   background: rgba(255, 253, 249, 0.88);
@@ -111,6 +117,21 @@ h1 {
   border: 1px solid var(--line);
 }
 
+.icon-button {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-strong);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
 .formula-export-button {
   margin-left: 14px;
   border-color: rgba(15, 118, 110, 0.45);
@@ -142,6 +163,7 @@ h1 {
   display: grid;
   grid-template-columns: minmax(320px, 410px) minmax(0, 1fr);
   gap: 22px;
+  align-items: start;
 }
 
 .layout.controls-hidden {
@@ -157,6 +179,7 @@ h1 {
   display: grid;
   gap: 18px;
   align-content: start;
+  min-width: 0;
 }
 
 .panel {
@@ -166,6 +189,7 @@ h1 {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   padding: 18px;
+  min-width: 0;
 }
 
 .panel h2 {
@@ -222,6 +246,8 @@ select {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
+  min-width: 0;
+  width: 100%;
 }
 
 .summary-card {
@@ -288,6 +314,20 @@ select {
   margin: 0;
 }
 
+.table-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.table-heading-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  text-align: right;
+}
+
 .chart-heading-actions {
   display: flex;
   flex-wrap: wrap;
@@ -322,6 +362,12 @@ select {
 .chart-stack {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  width: 100%;
+}
+
+.chart-frame {
+  min-width: 0;
 }
 
 .chart-frame[hidden] {
@@ -347,17 +393,112 @@ select {
   background: rgba(255, 255, 255, 0.55);
 }
 
+.field-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(38, 25, 12, 0.32);
+}
+
+.field-dialog-backdrop[hidden] {
+  display: none;
+}
+
+.field-dialog {
+  width: min(920px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.field-dialog-heading,
+.field-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-dialog h2,
+.field-dialog-copy {
+  margin: 0;
+}
+
+.field-dialog-copy {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.field-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.field-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(15, 118, 110, 0.04);
+  font-size: 0.92rem;
+}
+
+.field-choice input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.field-choice:has(input:disabled) {
+  color: var(--muted);
+  background: rgba(249, 243, 233, 0.72);
+}
+
 .table-wrap {
   overflow: auto;
   border-radius: 16px;
   border: 1px solid var(--line);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.table-panel-expanded {
+  width: 100%;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.table-panel-expanded .table-wrap {
+  width: max-content;
+  max-width: none;
+  overflow: visible;
+}
+
+.table-panel-expanded table {
+  width: max-content;
+  min-width: max-content;
+  font-size: 0.92rem;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1360px;
+  min-width: 1120px;
   background: rgba(255, 255, 255, 0.75);
+  --sticky-year-width: 64px;
+  --sticky-calendar-width: 92px;
+  --sticky-age-width: 58px;
 }
 
 thead {
@@ -368,7 +509,7 @@ thead {
 
 th,
 td {
-  padding: 10px 12px;
+  padding: 9px 10px;
   border-bottom: 1px solid var(--line);
   text-align: right;
   white-space: nowrap;
@@ -378,6 +519,50 @@ th {
   background: #f9f3e9;
   color: var(--muted);
   font-weight: 600;
+  font-size: 0.86rem;
+  line-height: 1.12;
+  vertical-align: bottom;
+  white-space: normal;
+}
+
+th span {
+  display: block;
+}
+
+.sticky-column {
+  position: sticky;
+  z-index: 2;
+  box-shadow: 1px 0 0 var(--line);
+}
+
+th.sticky-column {
+  z-index: 3;
+}
+
+.sticky-yearIndex {
+  left: 0;
+  width: var(--sticky-year-width);
+  min-width: var(--sticky-year-width);
+}
+
+.sticky-calendarYear {
+  left: var(--sticky-year-width);
+  width: var(--sticky-calendar-width);
+  min-width: var(--sticky-calendar-width);
+}
+
+.sticky-age {
+  left: calc(var(--sticky-year-width) + var(--sticky-calendar-width));
+  width: var(--sticky-age-width);
+  min-width: var(--sticky-age-width);
+}
+
+tbody .sticky-column {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+tbody tr:nth-child(even) .sticky-column {
+  background: #f8f0e4;
 }
 
 th:first-child,
@@ -399,6 +584,12 @@ tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
 @media (max-width: 1100px) {
   .layout {
     grid-template-columns: 1fr;
+  }
+
+  .layout:not(.controls-hidden) .table-panel-expanded {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
   }
 
   .summary-grid {
@@ -423,6 +614,10 @@ tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
 
   .field-grid,
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .field-choice-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -509,6 +704,37 @@ tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
   .table-wrap {
     overflow: visible;
     max-height: none;
+  }
+
+  .table-panel {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  .table-panel-expanded {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+  }
+
+  .table-panel-expanded table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+    font-size: 7px;
+  }
+
+  .table-panel-expanded th,
+  .table-panel-expanded td {
+    padding: 3px 2px;
+    white-space: normal;
+  }
+
+  .table-panel-expanded .sticky-column {
+    position: static;
+    width: auto;
+    min-width: 0;
+    box-shadow: none;
   }
 
   table {
