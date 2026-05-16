@@ -113,6 +113,7 @@ const incomeChartWrap = document.getElementById("income-chart-wrap");
 const chartEmptyMessage = document.getElementById("chart-empty-message");
 const chartCaption = document.getElementById("chart-caption");
 const tableCaption = document.getElementById("table-caption");
+const toggleTableWidthButton = document.getElementById("toggle-table-width-button");
 const exportTableButton = document.getElementById("export-table-button");
 const exportFormulaButton = document.getElementById("export-formula-button");
 const exportPdfButton = document.getElementById("export-pdf-button");
@@ -121,6 +122,7 @@ const resetButton = document.getElementById("reset-button");
 const importFile = document.getElementById("import-file");
 const togglePanelButton = document.getElementById("toggle-panel-button");
 const tableViewSelect = document.getElementById("table-view-select");
+const chooseCustomFieldsButton = document.getElementById("choose-custom-fields-button");
 const granularTaxToggleWrap = document.getElementById("granular-tax-toggle-wrap");
 const granularTaxToggle = document.getElementById("granular-tax-toggle");
 const granularIncomeToggleWrap = document.getElementById("granular-income-toggle-wrap");
@@ -129,10 +131,15 @@ const granularGrowthToggleWrap = document.getElementById("granular-growth-toggle
 const granularGrowthToggle = document.getElementById("granular-growth-toggle");
 const granularCrystallisationToggleWrap = document.getElementById("granular-crystallisation-toggle-wrap");
 const granularCrystallisationToggle = document.getElementById("granular-crystallisation-toggle");
+const customFieldsDialog = document.getElementById("custom-fields-dialog");
+const customFieldsList = document.getElementById("custom-fields-list");
+const closeCustomFieldsButton = document.getElementById("close-custom-fields-button");
+const applyCustomFieldsButton = document.getElementById("apply-custom-fields-button");
 const showPotChartToggle = document.getElementById("show-pot-chart-toggle");
 const showIncomeChartToggle = document.getElementById("show-income-chart-toggle");
 const incomeChartModeSelect = document.getElementById("income-chart-mode-select");
 const layout = document.getElementById("layout");
+const tablePanel = document.querySelector(".table-panel");
 
 let state = loadState();
 let uiState = loadUiState();
@@ -192,7 +199,7 @@ function loadUiState() {
     const saved = JSON.parse(localStorage.getItem(UI_STORAGE_KEY) || "{}");
     return {
       controlsHidden: Boolean(saved.controlsHidden),
-      tableView: ["summarised", "detailed", "granular"].includes(saved.tableView) ? saved.tableView : "summarised",
+      tableView: ["summarised", "detailed", "granular", "custom"].includes(saved.tableView) ? saved.tableView : "summarised",
       showGranularTaxFields: Boolean(saved.showGranularTaxFields),
       showGranularIncomeFields: saved.showGranularIncomeFields !== false,
       showGranularGrowthFields: Boolean(saved.showGranularGrowthFields),
@@ -200,6 +207,8 @@ function loadUiState() {
       showPotChart: saved.showPotChart !== false,
       showIncomeChart: saved.showIncomeChart !== false,
       incomeChartMode: ["line", "stacked"].includes(saved.incomeChartMode) ? saved.incomeChartMode : "line",
+      tableExpanded: Boolean(saved.tableExpanded),
+      customTableFields: Array.isArray(saved.customTableFields) ? saved.customTableFields : [],
     };
   } catch {
     return {
@@ -212,6 +221,8 @@ function loadUiState() {
       showPotChart: true,
       showIncomeChart: true,
       incomeChartMode: "line",
+      tableExpanded: false,
+      customTableFields: [],
     };
   }
 }
@@ -231,10 +242,15 @@ function applyUiState() {
   showPotChartToggle.checked = Boolean(uiState.showPotChart);
   showIncomeChartToggle.checked = Boolean(uiState.showIncomeChart);
   incomeChartModeSelect.value = uiState.incomeChartMode;
+  tablePanel.classList.toggle("table-panel-expanded", Boolean(uiState.tableExpanded));
+  toggleTableWidthButton.textContent = uiState.tableExpanded ? "-" : "+";
+  toggleTableWidthButton.setAttribute("aria-label", uiState.tableExpanded ? "Reduce table width" : "Expand table width");
+  toggleTableWidthButton.title = uiState.tableExpanded ? "Reduce table width" : "Expand table width";
   granularTaxToggleWrap.hidden = uiState.tableView !== "granular";
   granularIncomeToggleWrap.hidden = uiState.tableView !== "granular";
   granularGrowthToggleWrap.hidden = uiState.tableView !== "granular";
   granularCrystallisationToggleWrap.hidden = uiState.tableView !== "granular";
+  chooseCustomFieldsButton.hidden = uiState.tableView !== "custom";
 }
 
 function growthRateForScenario(source, phase = "pre") {
@@ -839,6 +855,7 @@ function render() {
   syncForm();
   const projection = calculateProjection(state);
   renderSummary(projection);
+  renderCustomFieldChooser();
   renderTable(projection);
   renderChart(projection);
   saveState();
@@ -1025,7 +1042,7 @@ function renderSummary(projection) {
   tableCaption.textContent = `Showing ${projection.rows.length} retirement years from ${projection.retirementYear} onwards.`;
 }
 
-function getTableColumns() {
+function getTableColumnSets() {
   const detailedColumns = [
     ["yearIndex", "Year"],
     ["calendarYear", "Calendar"],
@@ -1170,11 +1187,103 @@ function getTableColumns() {
     ...granularExtraColumns,
   ];
 
-  return uiState.tableView === "granular"
-    ? granularColumns
-    : uiState.tableView === "detailed"
-      ? detailedColumns
-      : summarisedColumns;
+  const allColumns = uniqueColumns([
+    ...summarisedColumns,
+    ...detailedColumns,
+    ...granularBaseDetailColumns,
+    ...granularSavingsColumns,
+    ...granularTaxColumns,
+    ...granularGrowthColumns,
+    ...granularCrystallisationColumns,
+    ...granularExtraColumns,
+  ]);
+
+  return {
+    detailedColumns,
+    summarisedColumns,
+    granularColumns,
+    allColumns,
+  };
+}
+
+function uniqueColumns(columns) {
+  const seen = new Set();
+  return columns.filter(([key]) => {
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+const CUSTOM_MANDATORY_COLUMN_KEYS = [
+  "yearIndex",
+  "calendarYear",
+  "age",
+  "totalIncomeRequired",
+  "incomeTotal",
+  "estimatedTax",
+  "excessNet",
+  "totalPotAfterGrowth",
+];
+
+const CUSTOM_DEFAULT_COLUMN_KEYS = [
+  "incomeRequired",
+  "taxFreeCash",
+  "sourcedFromSavings",
+  "grossPensionWithdrawal",
+  "incomeShortfall",
+  "savingsLeft",
+];
+
+function getTableColumns() {
+  const { summarisedColumns, detailedColumns, granularColumns, allColumns } = getTableColumnSets();
+  if (uiState.tableView === "granular") {
+    return granularColumns;
+  }
+  if (uiState.tableView === "detailed") {
+    return detailedColumns;
+  }
+  if (uiState.tableView === "custom") {
+    const selectedKeys = new Set([
+      ...CUSTOM_MANDATORY_COLUMN_KEYS,
+      ...((uiState.customTableFields && uiState.customTableFields.length > 0) ? uiState.customTableFields : CUSTOM_DEFAULT_COLUMN_KEYS),
+    ]);
+    return allColumns.filter(([key]) => selectedKeys.has(key));
+  }
+  return summarisedColumns;
+}
+
+function renderCustomFieldChooser() {
+  const { allColumns } = getTableColumnSets();
+  const mandatoryKeys = new Set(CUSTOM_MANDATORY_COLUMN_KEYS);
+  const activeKeys = new Set([
+    ...CUSTOM_MANDATORY_COLUMN_KEYS,
+    ...((uiState.customTableFields && uiState.customTableFields.length > 0) ? uiState.customTableFields : CUSTOM_DEFAULT_COLUMN_KEYS),
+  ]);
+  customFieldsList.replaceChildren(...allColumns.map(([key, label]) => {
+    const item = document.createElement("label");
+    item.className = "field-choice";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = key;
+    input.checked = activeKeys.has(key);
+    input.disabled = mandatoryKeys.has(key);
+    const text = document.createElement("span");
+    text.textContent = mandatoryKeys.has(key) ? `${label} (mandatory)` : label;
+    item.append(input, text);
+    return item;
+  }));
+}
+
+function openCustomFieldChooser() {
+  renderCustomFieldChooser();
+  customFieldsDialog.hidden = false;
+}
+
+function closeCustomFieldChooser() {
+  customFieldsDialog.hidden = true;
 }
 
 function getColumnCalculationNote(key, label) {
@@ -1254,9 +1363,16 @@ function renderTable(projection) {
   const columns = getTableColumns();
 
   const headRow = document.createElement("tr");
-  columns.forEach(([, label]) => {
+  columns.forEach(([key, label]) => {
     const th = document.createElement("th");
-    th.textContent = label;
+    splitTableHeader(label).forEach((line) => {
+      const span = document.createElement("span");
+      span.textContent = line;
+      th.appendChild(span);
+    });
+    if (["yearIndex", "calendarYear", "age"].includes(key)) {
+      th.classList.add("sticky-column", `sticky-${key}`);
+    }
     headRow.appendChild(th);
   });
   projectionHead.replaceChildren(headRow);
@@ -1270,6 +1386,9 @@ function renderTable(projection) {
       const td = document.createElement("td");
       td.dataset.key = key;
       if (["yearIndex", "calendarYear", "age"].includes(key)) {
+        td.classList.add("sticky-column", `sticky-${key}`);
+      }
+      if (["yearIndex", "calendarYear", "age"].includes(key)) {
         td.textContent = String(Math.round(Number(row[key]) || 0));
       } else if (["effectiveTaxRate", "marginalTaxRate"].includes(key)) {
         td.textContent = PERCENT.format(row[key] || 0);
@@ -1282,6 +1401,37 @@ function renderTable(projection) {
   });
 
   projectionBody.replaceChildren(...bodyRows);
+}
+
+function splitTableHeader(label) {
+  const manualBreaks = {
+    "Gross income required": ["Gross income", "required"],
+    "Sourced from Savings": ["Sourced from", "Savings"],
+    "Total income": ["Total", "income"],
+    "Taxable pension withdrawn": ["Taxable pension", "withdrawn"],
+    "Estimated tax": ["Estimated", "tax"],
+    "Free cash": ["Free", "cash"],
+    "Pot after growth": ["Pot after", "growth"],
+    "Partner work income": ["Partner work", "income"],
+    "Partner state pension": ["Partner state", "pension"],
+    "Partner work pension": ["Partner work", "pension"],
+    "TFLS (Tax Free Lump Sum)": ["TFLS", "(Tax Free Lump Sum)"],
+    "From my pension": ["From my", "pension"],
+    "Savings left": ["Savings", "left"],
+    "Income needed": ["Income", "needed"],
+    "My state pension": ["My state", "pension"],
+    "Taxable drawdown linked to TFLS": ["Taxable linked", "to TFLS"],
+    "Crystallised for taxable drawdown": ["Crystallised for", "taxable drawdown"],
+  };
+  if (manualBreaks[label]) {
+    return manualBreaks[label];
+  }
+  const words = label.split(" ");
+  if (words.length <= 1) {
+    return [label];
+  }
+  const midpoint = Math.ceil(words.length / 2);
+  return [words.slice(0, midpoint).join(" "), words.slice(midpoint).join(" ")];
 }
 
 function renderChart(projection) {
@@ -1991,6 +2141,28 @@ inputs.forEach((input) => {
 tableViewSelect.addEventListener("change", () => {
   uiState.tableView = tableViewSelect.value;
   saveUiState();
+  if (uiState.tableView === "custom") {
+    openCustomFieldChooser();
+  }
+  render();
+});
+
+closeCustomFieldsButton.addEventListener("click", closeCustomFieldChooser);
+chooseCustomFieldsButton.addEventListener("click", openCustomFieldChooser);
+
+customFieldsDialog.addEventListener("click", (event) => {
+  if (event.target === customFieldsDialog) {
+    closeCustomFieldChooser();
+  }
+});
+
+applyCustomFieldsButton.addEventListener("click", () => {
+  const selectedKeys = Array.from(customFieldsList.querySelectorAll("input[type='checkbox']:checked"))
+    .map((input) => input.value)
+    .filter((key) => !CUSTOM_MANDATORY_COLUMN_KEYS.includes(key));
+  uiState.customTableFields = selectedKeys;
+  saveUiState();
+  closeCustomFieldChooser();
   render();
 });
 
@@ -2038,6 +2210,12 @@ incomeChartModeSelect.addEventListener("change", () => {
 
 togglePanelButton.addEventListener("click", () => {
   uiState.controlsHidden = !uiState.controlsHidden;
+  saveUiState();
+  render();
+});
+
+toggleTableWidthButton.addEventListener("click", () => {
+  uiState.tableExpanded = !uiState.tableExpanded;
   saveUiState();
   render();
 });

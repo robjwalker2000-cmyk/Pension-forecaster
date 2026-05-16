@@ -4,25 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pension Forecaster</title>
-    <link rel="stylesheet" href="./styles.css?v=20260516a" />
+    <link rel="stylesheet" href="./styles.css?v=20260516b" />
   </head>
   <body>
     <div class="page-shell">
       <header class="hero">
         <div>
           <p class="eyebrow">Pension projection tool</p>
-          <h1>Pension Forecaster</h1>
+          <div class="title-row">
+            <h1>Pension Forecaster</h1>
+            <p class="version-badge">Version 2.4</p>
+          </div>
           <p class="hero-copy">
             A browser-based version of your spreadsheet with live updates, personal
             detail import, and a year-by-year retirement drawdown view.
           </p>
         </div>
-        <p class="version-badge">Version 2.3</p>
         <div class="hero-actions">
           <label class="button secondary" for="import-file">Import details</label>
           <input id="import-file" type="file" accept=".csv,.json" hidden />
           <button id="toggle-panel-button" class="button secondary" type="button">Hide controls</button>
-          <select id="table-view-select" class="button secondary table-view-select" aria-label="Table view"><option value="summarised">Summarised</option><option value="detailed">Detailed</option><option value="granular">Granular</option></select>
+          <select id="table-view-select" class="button secondary table-view-select" aria-label="Table view"><option value="summarised">Summarised</option><option value="detailed">Detailed</option><option value="granular">Granular</option><option value="custom">Custom</option></select>
+          <button id="choose-custom-fields-button" class="button secondary" type="button" hidden>Choose fields</button>
           <label id="granular-tax-toggle-wrap" class="toggle inline-toggle" hidden><span>Show tax fields</span><input id="granular-tax-toggle" type="checkbox" /></label>
           <label id="granular-income-toggle-wrap" class="toggle inline-toggle" hidden><span>Show income details</span><input id="granular-income-toggle" type="checkbox" /></label>
           <label id="granular-growth-toggle-wrap" class="toggle inline-toggle" hidden><span>Show growth breakdown</span><input id="granular-growth-toggle" type="checkbox" /></label>
@@ -158,8 +161,13 @@
 
           <section class="panel table-panel">
             <div class="panel-heading">
-              <h2>Year-by-Year Projection</h2>
-              <p id="table-caption"></p>
+              <div class="table-title-actions">
+                <button id="toggle-table-width-button" class="icon-button" type="button" aria-label="Expand table width" title="Expand table width">+</button>
+                <h2>Year-by-Year Projection</h2>
+              </div>
+              <div class="table-heading-actions">
+                <p id="table-caption"></p>
+              </div>
             </div>
             <div class="table-wrap">
               <table>
@@ -180,6 +188,20 @@
       </article>
     </template>
 
-    <script src="./app.js?v=20260516a"></script>
+    <div id="custom-fields-dialog" class="field-dialog-backdrop" hidden>
+      <section class="field-dialog" role="dialog" aria-modal="true" aria-labelledby="custom-fields-title">
+        <div class="field-dialog-heading">
+          <h2 id="custom-fields-title">Custom table fields</h2>
+          <button id="close-custom-fields-button" class="icon-button" type="button" aria-label="Close field chooser" title="Close">-</button>
+        </div>
+        <p class="field-dialog-copy">Mandatory fields stay selected. Choose any extra columns to show.</p>
+        <div id="custom-fields-list" class="field-choice-grid"></div>
+        <div class="field-dialog-actions">
+          <button id="apply-custom-fields-button" class="button" type="button">Apply fields</button>
+        </div>
+      </section>
+    </div>
+
+    <script src="./app.js?v=20260516b"></script>
   </body>
 </html>
