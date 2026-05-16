@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pension Forecaster</title>
-    <link rel="stylesheet" href="./styles.css?v=20260513b" />
+    <link rel="stylesheet" href="./styles.css?v=20260516a" />
   </head>
   <body>
     <div class="page-shell">
@@ -17,7 +17,7 @@
             detail import, and a year-by-year retirement drawdown view.
           </p>
         </div>
-        <p class="version-badge">Version 2.2</p>
+        <p class="version-badge">Version 2.3</p>
         <div class="hero-actions">
           <label class="button secondary" for="import-file">Import details</label>
           <input id="import-file" type="file" accept=".csv,.json" hidden />
@@ -52,6 +52,8 @@
               <label><span>ISA growth rate</span><input data-field="personalIsaGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
               <label><span>Bank savings</span><input data-field="personalBankSavings" type="number" step="1000" /></label>
               <label><span>Bank interest rate</span><input data-field="personalBankInterestRate" data-format="percent-1" type="number" step="0.1" /></label>
+              <label><span>Premium Bonds</span><input data-field="personalPremiumBonds" type="number" step="1000" /></label>
+              <label><span>Premium Bonds growth</span><input data-field="personalPremiumBondsGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
               <label><span>Own state pension</span><input data-field="ownStatePension" type="number" step="1000" /></label>
               <label><span>Tax allowance CPI</span><input data-field="taxAllowanceCpiRate" data-format="percent-1" type="number" step="0.1" /></label>
               <label><span>Plan years</span><input data-field="planYears" type="number" step="1" /></label>
@@ -120,6 +122,8 @@
             <div class="field-grid">
               <label class="toggle"><span>Use regular drawdown</span><input data-field="regularDrawdownEnabled" type="checkbox" /></label>
               <label class="toggle"><span>Tax optimisation mode</span><input data-field="taxOptimisationMode" type="checkbox" /></label>
+              <label class="toggle"><span>Use partner savings for tax optimisation</span><input data-field="usePartnerSavingsForTaxOptimisation" type="checkbox" /></label>
+              <label class="toggle"><span>Use TFLS by 75</span><input data-field="useTflsBy75" type="checkbox" /></label>
               <label><span>Regular drawdown</span><input data-field="regularDrawdownAmount" type="number" step="1000" /></label>
               <label><span>Regular drawdown years</span><input data-field="regularDrawdownYears" type="number" step="1" /></label>
             </div>
@@ -176,6 +180,6 @@
       </article>
     </template>
 
-    <script src="./app.js?v=20260513b"></script>
+    <script src="./app.js?v=20260516a"></script>
   </body>
 </html>
