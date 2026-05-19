@@ -36,6 +36,8 @@ const DEFAULT_STATE = {
   postRetirementGrowthHigh: 0.04,
   applyPotGrowth: true,
   take25PercentYear1: false,
+  yearOneTflsMode: "full",
+  yearOneTflsAmount: 0,
   incomeRequired: 60000,
   incomeAfterYear10: 40000,
   billsAnnual: 30000,
@@ -59,6 +61,7 @@ const DEFAULT_STATE = {
   statePensionApplyCpi: true,
   statePensionCpiRate: 0.02,
   ownStatePension: 13000,
+  ownStatePensionGrowthRate: 0.02,
   applyTaxAllowanceCpi: false,
   taxAllowanceCpiRate: 0.02,
   regularDrawdownEnabled: false,
@@ -109,11 +112,15 @@ const UK_TAX_RULES = {
 };
 
 const inputs = Array.from(document.querySelectorAll("[data-field]"));
+const growthScenarioFields = Array.from(document.querySelectorAll("[data-growth-scenario]"));
 const summaryGrid = document.getElementById("summary-grid");
 const summaryTemplate = document.getElementById("summary-card-template");
 const projectionHead = document.getElementById("projection-head");
 const projectionBody = document.getElementById("projection-body");
 const definedBenefitFields = document.getElementById("defined-benefit-fields");
+const partnerDetailFields = document.getElementById("partner-detail-fields");
+const regularDrawdownFields = document.getElementById("regular-drawdown-fields");
+const yearOneTflsFields = document.getElementById("year-one-tfls-fields");
 const potChartCanvas = document.getElementById("pot-chart");
 const incomeChartCanvas = document.getElementById("income-chart");
 const potChartWrap = document.getElementById("pot-chart-wrap");
@@ -195,6 +202,8 @@ function normaliseState(source) {
     next.personalPremiumBonds = Math.max(0, Number(next.personalPremiumBonds) || 0);
   }
   next.personalSavings = next.personalIsaSavings + next.personalBankSavings + next.personalPremiumBonds;
+  next.yearOneTflsMode = next.yearOneTflsMode === "defined" ? "defined" : "full";
+  next.yearOneTflsAmount = Math.max(0, Number(next.yearOneTflsAmount) || 0);
   return next;
 }
 
@@ -260,6 +269,12 @@ function applyUiState() {
   granularCrystallisationToggleWrap.hidden = uiState.tableView !== "granular";
   chooseCustomFieldsButton.hidden = uiState.tableView !== "custom";
   definedBenefitFields.hidden = !Boolean(state.definedBenefitEnabled);
+  partnerDetailFields.hidden = state.partnerDetailsEnabled === false;
+  regularDrawdownFields.hidden = !Boolean(state.regularDrawdownEnabled);
+  yearOneTflsFields.hidden = !Boolean(state.take25PercentYear1);
+  growthScenarioFields.forEach((field) => {
+    field.classList.toggle("growth-scenario-selected", Number(field.dataset.growthScenario) === Number(state.scenario));
+  });
 }
 
 function growthRateForScenario(source, phase = "pre") {
@@ -581,7 +596,8 @@ function calculateProjection(source) {
     const age = source.retirementAge + yearIndex - 1;
     const partnerAge = calendarYear - source.partnerBirthYear;
     const incomeBase = yearIndex <= 10 ? source.incomeRequired : source.incomeAfterYear10;
-    const incomeRequired = compoundAnnual(incomeBase, source.cpiRate, yearIndex, source.applyCpiIncome);
+    const incomeCpiYears = yearsToRetirement + yearIndex - 1;
+    const incomeRequired = compoundAnnual(incomeBase, source.cpiRate, incomeCpiYears, source.applyCpiIncome);
     const holidays = compoundAnnual(source.holidaysAnnual, source.cpiRate, yearIndex, source.applyCpiHolidays);
     const carCost =
       source.carCost > 0
@@ -605,7 +621,7 @@ function calculateProjection(source) {
         : 0;
     const ownStatePension =
       age > 67
-        ? compoundAnnual(source.ownStatePension, source.statePensionCpiRate, yearIndex, source.statePensionApplyCpi)
+        ? compoundAnnual(source.ownStatePension, source.ownStatePensionGrowthRate, yearIndex, true)
         : 0;
     const definedBenefitYearIndex = calendarYear - source.definedBenefitStartYear;
     const definedBenefitIncome =
@@ -633,8 +649,11 @@ function calculateProjection(source) {
     const bankInterestGross = bankSavingsBalance * source.personalBankInterestRate;
     const premiumBondsGrowth = premiumBondsBalance * source.personalPremiumBondsGrowthRate;
 
+    const fullYearOneTaxFreeCash = Math.min(lumpSumAllowanceAfterDefinedBenefit, uncrystallisedPot * 0.25);
     const forcedTaxFreeCash = yearIndex === 1 && source.take25PercentYear1
-      ? Math.min(lumpSumAllowanceAfterDefinedBenefit, uncrystallisedPot * 0.25)
+      ? source.yearOneTflsMode === "defined"
+        ? Math.min(source.yearOneTflsAmount, fullYearOneTaxFreeCash)
+        : fullYearOneTaxFreeCash
       : 0;
 
     const taxFreeCashCapacity = Math.min(lumpSumAllowanceAfterDefinedBenefit, uncrystallisedPot * 0.25);
@@ -728,7 +747,7 @@ function calculateProjection(source) {
     const incomeCovered = incomeTotal + totalTaxableWithdrawal + sourcedFromSavings;
     const incomeShortfall = Math.max(0, totalIncomeRequired - incomeCovered);
     const householdBills = compoundAnnual(source.billsAnnual, source.cpiRate, yearIndex, source.applyCpiBills);
-    const excessNet = totalIncomeRequired - estimatedTax - householdBills - holidays;
+    const excessNet = incomeCovered - estimatedTax - householdBills - holidays;
 
     const totalDesignated = designatedForTaxFree + extraDesignationForTaxable;
     const crystallisedToDateCurrent = crystallisedToDate + designatedForTaxFree;
@@ -966,6 +985,8 @@ function renderSummary(projection) {
       label: "Total plan shortfall",
       value: formatCurrency(totalPlanShortfall),
       note: `Across ${NUMBER.format(projection.rows.length)} retirement years shown`,
+      warning: totalPlanShortfall > 0.01,
+      success: totalPlanShortfall <= 0.01,
     },
     {
       label: "End pot",
@@ -1035,6 +1056,8 @@ function renderSummary(projection) {
   cards.forEach((card) => {
     const clone = summaryTemplate.content.cloneNode(true);
     const cardElement = clone.querySelector(".summary-card");
+    cardElement.classList.toggle("summary-card-warning", Boolean(card.warning));
+    cardElement.classList.toggle("summary-card-success", Boolean(card.success));
     clone.querySelector(".summary-label").textContent = card.label;
     if (card.split) {
       cardElement.classList.add("summary-card-split");
@@ -1051,7 +1074,26 @@ function renderSummary(projection) {
           <p class="summary-note"></p>
         `;
         itemElement.querySelector(".summary-split-label").textContent = item.label;
-        itemElement.querySelector(".summary-value").textContent = item.value;
+        const valueElement = itemElement.querySelector(".summary-value");
+        valueElement.textContent = item.value;
+        if (uiState.controlsHidden && card.label === "Plan dates" && item.label === "Retirement") {
+          const valueRow = document.createElement("div");
+          valueRow.className = "summary-value-control-row";
+          const decreaseButton = document.createElement("button");
+          decreaseButton.className = "summary-step-button";
+          decreaseButton.type = "button";
+          decreaseButton.textContent = "-";
+          decreaseButton.setAttribute("aria-label", "Decrease retirement year");
+          decreaseButton.dataset.retirementYearStep = "-1";
+          const increaseButton = document.createElement("button");
+          increaseButton.className = "summary-step-button";
+          increaseButton.type = "button";
+          increaseButton.textContent = "+";
+          increaseButton.setAttribute("aria-label", "Increase retirement year");
+          increaseButton.dataset.retirementYearStep = "1";
+          valueElement.replaceWith(valueRow);
+          valueRow.append(decreaseButton, valueElement, increaseButton);
+        }
         itemElement.querySelector(".summary-note").textContent = item.note;
         splitWrap.appendChild(itemElement);
       });
@@ -1324,13 +1366,13 @@ function getColumnCalculationNote(key, label) {
     yearIndex: 'Year number from retirement start.',
     calendarYear: 'Retirement year + (Year - 1).',
     age: 'Retirement age + (Year - 1).',
-    incomeRequired: 'Base income target after CPI, before car/bills/tax.',
+    incomeRequired: 'Base income target inflated from today to the projection year when CPI is applied, before car/bills/tax.',
     carCost: 'Car cost applied in the configured replacement years only.',
     totalIncomeRequired: 'Gross income required + Car.',
     partnerIncome: 'Partner work income, stopping when state pension starts.',
     partnerStatePension: 'Partner state pension after trigger age and CPI rules.',
     partnerWorkPension: 'Partner work pension after trigger age and CPI rules.',
-    ownStatePension: 'Your state pension after trigger age and CPI rules.',
+    ownStatePension: 'Your state pension after trigger age and your own state pension growth rate.',
     definedBenefitIncome: 'Inflexible defined benefit income, starting in the selected year, growing annually, and included in your taxable income before flexible drawdown is optimised.',
     definedBenefitLumpSum: 'Tax-free defined benefit lump sum in the DB start year. It reduces remaining lump sum allowance before flexible TFLS is calculated.',
     taxFreeCash: 'Tax Free Lump Sum taken from available uncrystallised pension funds and tested against remaining lump sum allowance.',
@@ -1364,7 +1406,7 @@ function getColumnCalculationNote(key, label) {
     holidays: 'Holiday cost after CPI rules.',
     householdBills: 'Bills after CPI rules.',
     estimatedTax: 'UK income tax estimate on my taxable income for the year.',
-    excessNet: 'Free cash = total income required - estimated tax - bills - holidays.',
+    excessNet: 'Free cash = income covered by pensions, TFLS, taxable withdrawals and savings - estimated tax - bills - holidays.',
     incomeShortfall: 'Income needed - income covered by pensions, TFLS, taxable pension withdrawals, and savings.',
     uncrystallisedPot: 'Uncrystallised fund left after withdrawals and annual growth.',
     crystallisedPot: 'Total crystallised for TFLS to date, including prior years.',
@@ -1800,6 +1842,16 @@ function updateField(event) {
   render();
 }
 
+function adjustRetirementYear(step) {
+  const nextRetirementAge = Math.max(state.currentAge, Number(state.retirementAge) + step);
+  state = normaliseState({
+    ...state,
+    retirementAge: nextRetirementAge,
+    retirementYear: Number(state.yearOfBirth) + nextRetirementAge,
+  });
+  render();
+}
+
 function csvEscape(value) {
   const text = String(value ?? "");
   if (/[",\n]/.test(text)) {
@@ -1982,6 +2034,7 @@ function exportFormulaWorkbookToExcel() {
     ["Partner state pension", state.partnerStatePension],
     ["Partner work pension", state.partnerWorkPension],
     ["Own state pension", state.ownStatePension],
+    ["Own state pension growth", state.ownStatePensionGrowthRate],
     ["Defined benefit enabled", state.definedBenefitEnabled ? 1 : 0],
     ["Defined benefit start year", state.definedBenefitStartYear],
     ["Defined benefit initial lump sum", state.definedBenefitInitialLumpSum],
@@ -2003,7 +2056,9 @@ function exportFormulaWorkbookToExcel() {
     ["Apply CPI to holidays", state.applyCpiHolidays ? 1 : 0],
     ["Post-retirement growth rate", projection.postRetirementGrowthRate],
     ["Apply pot growth", state.applyPotGrowth ? 1 : 0],
-    ["Take 25% in year 1", state.take25PercentYear1 ? 1 : 0],
+    ["Year 1 TFLS enabled", state.take25PercentYear1 ? 1 : 0],
+    ["Year 1 TFLS defined amount mode", state.yearOneTflsMode === "defined" ? 1 : 0],
+    ["Year 1 TFLS amount", state.yearOneTflsAmount],
     ["Starting uncrystallised pot", projection.retirementUncrystallisedPot],
     ["Starting crystallised pot", projection.retirementCrystallisedPot],
     ["Starting lump sum allowance", projection.remainingLumpSumAllowanceStart],
@@ -2035,18 +2090,19 @@ function exportFormulaWorkbookToExcel() {
     const standaloneTfls = `MIN(MAX(0,(${lsaAfterDbLump})-(${pairedTfls})),MAX(0,${cell("openingPot", rowNumber)}-(${pairedTaxableWithdrawal})-(${pairedTfls}))*0.25,MAX(0,${targetGross}-(${pairedTaxableWithdrawal})-(${pairedTfls})))`;
     const tflsBy75Formula = `IF(AND(${assumptionRef["Use TFLS by 75"]}=1,${cell("age", rowNumber)}<=75),MIN(${lsaAfterDbLump},${cell("openingPot", rowNumber)}*0.25,(${lsaAfterDbLump})/MAX(1,75-${cell("age", rowNumber)}+1)),0)`;
     const taxOptimisedTfls = `MAX(${tflsBy75Formula},(${pairedTfls})+(${standaloneTfls}))`;
-    const standardTfls = `MAX(${tflsBy75Formula},IF(AND(${assumptionRef["Take 25% in year 1"]}=1,${cell("yearIndex", rowNumber)}=1),MIN(${lsaAfterDbLump},${cell("openingPot", rowNumber)}*0.25),IF(AND(${assumptionRef["Use regular drawdown"]}=1,${cell("yearIndex", rowNumber)}<=${assumptionRef["Regular drawdown years"]}),MIN(${lsaAfterDbLump},${assumptionRef["Regular drawdown"]},${cell("openingPot", rowNumber)}*0.25),0)))`;
+    const yearOneTfls = `IF(${assumptionRef["Year 1 TFLS defined amount mode"]}=1,MIN(${assumptionRef["Year 1 TFLS amount"]},${lsaAfterDbLump},${cell("openingPot", rowNumber)}*0.25),MIN(${lsaAfterDbLump},${cell("openingPot", rowNumber)}*0.25))`;
+    const standardTfls = `MAX(${tflsBy75Formula},IF(AND(${assumptionRef["Year 1 TFLS enabled"]}=1,${cell("yearIndex", rowNumber)}=1),${yearOneTfls},IF(AND(${assumptionRef["Use regular drawdown"]}=1,${cell("yearIndex", rowNumber)}<=${assumptionRef["Regular drawdown years"]}),MIN(${lsaAfterDbLump},${assumptionRef["Regular drawdown"]},${cell("openingPot", rowNumber)}*0.25),0)))`;
     const formulas = {
       yearIndex: rowIndex === 0 ? "=1" : `=${cell("yearIndex", previousRow)}+1`,
       calendarYear: rowIndex === 0 ? `=${assumptionRef["Retirement year"]}` : `=${cell("calendarYear", previousRow)}+1`,
       age: rowIndex === 0 ? `=${assumptionRef["Retirement age"]}` : `=${cell("age", previousRow)}+1`,
-      incomeRequired: `=IF(${assumptionRef["Apply CPI to income"]}=1,IF(${cell("yearIndex", rowNumber)}<=10,${assumptionRef["Income required"]},${assumptionRef["Income after year 10"]})*POWER(1+${assumptionRef["CPI rate"]}/12,12*${cell("yearIndex", rowNumber)}),IF(${cell("yearIndex", rowNumber)}<=10,${assumptionRef["Income required"]},${assumptionRef["Income after year 10"]}))`,
+      incomeRequired: `=IF(${assumptionRef["Apply CPI to income"]}=1,IF(${cell("yearIndex", rowNumber)}<=10,${assumptionRef["Income required"]},${assumptionRef["Income after year 10"]})*POWER(1+${assumptionRef["CPI rate"]}/12,12*(${assumptionRef["Retirement year"]}-${assumptionRef["Current year"]}+${cell("yearIndex", rowNumber)}-1)),IF(${cell("yearIndex", rowNumber)}<=10,${assumptionRef["Income required"]},${assumptionRef["Income after year 10"]}))`,
       carCost: `=IF(AND(${assumptionRef["Car cost"]}>0,${cell("yearIndex", rowNumber)}>=${assumptionRef["Car start year"]},MOD(${cell("yearIndex", rowNumber)}-${assumptionRef["Car start year"]},${assumptionRef["Car frequency years"]})=0),${assumptionRef["Car cost"]},0)`,
       totalIncomeRequired: `=${cell("incomeRequired", rowNumber)}+${cell("carCost", rowNumber)}`,
       partnerIncome: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}<68,IF(${assumptionRef["Apply CPI to partner work"]}=1,${assumptionRef["Partner work income"]}*POWER(1+${assumptionRef["Partner work CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner work income"]}),0),0)`,
       partnerStatePension: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}>67,IF(${assumptionRef["Apply CPI to state/work pensions"]}=1,${assumptionRef["Partner state pension"]}*POWER(1+${assumptionRef["State/work pension CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner state pension"]}),0),0)`,
       partnerWorkPension: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}>67,IF(${assumptionRef["Apply CPI to state/work pensions"]}=1,${assumptionRef["Partner work pension"]}*POWER(1+${assumptionRef["State/work pension CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner work pension"]}),0),0)`,
-      ownStatePension: `=IF(${cell("age", rowNumber)}>67,IF(${assumptionRef["Apply CPI to state/work pensions"]}=1,${assumptionRef["Own state pension"]}*POWER(1+${assumptionRef["State/work pension CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Own state pension"]}),0)`,
+      ownStatePension: `=IF(${cell("age", rowNumber)}>67,${assumptionRef["Own state pension"]}*POWER(1+${assumptionRef["Own state pension growth"]}/12,12*${cell("yearIndex", rowNumber)}),0)`,
       definedBenefitIncome: `=IF(AND(${assumptionRef["Defined benefit enabled"]}=1,${cell("calendarYear", rowNumber)}>=${assumptionRef["Defined benefit start year"]},${cell("calendarYear", rowNumber)}<${assumptionRef["Defined benefit start year"]}+${assumptionRef["Defined benefit max years"]}),${assumptionRef["Defined benefit initial annual amount"]}*POWER(1+${assumptionRef["Defined benefit growth rate"]}/12,12*(${cell("calendarYear", rowNumber)}-${assumptionRef["Defined benefit start year"]})),0)`,
       definedBenefitLumpSum: `=IF(AND(${assumptionRef["Defined benefit enabled"]}=1,${cell("calendarYear", rowNumber)}=${assumptionRef["Defined benefit start year"]}),MIN(${priorLsa},${assumptionRef["Defined benefit initial lump sum"]}),0)`,
       tflsBy75Target: `=${tflsBy75Formula}`,
@@ -2058,7 +2114,7 @@ function exportFormulaWorkbookToExcel() {
       holidays: `=IF(${assumptionRef["Apply CPI to holidays"]}=1,${assumptionRef["Holidays annual"]}*POWER(1+${assumptionRef["CPI rate"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Holidays annual"]})`,
       householdBills: `=IF(${assumptionRef["Apply CPI to bills"]}=1,${assumptionRef["Bills annual"]}*POWER(1+${assumptionRef["CPI rate"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Bills annual"]})`,
       estimatedTax: `=${taxFormula}`,
-      excessNet: `=${cell("totalIncomeRequired", rowNumber)}-${cell("estimatedTax", rowNumber)}-${cell("householdBills", rowNumber)}-${cell("holidays", rowNumber)}`,
+      excessNet: `=${cell("incomeTotal", rowNumber)}+${cell("grossPensionWithdrawal", rowNumber)}+${cell("sourcedFromSavings", rowNumber)}-${cell("estimatedTax", rowNumber)}-${cell("householdBills", rowNumber)}-${cell("holidays", rowNumber)}`,
       openingPot: `=${priorPot}`,
       withdrawalsTaken: `=${cell("taxFreeCash", rowNumber)}+${cell("grossPensionWithdrawal", rowNumber)}`,
       totalPotBeforeGrowth: `=MAX(0,${cell("openingPot", rowNumber)}-${cell("withdrawalsTaken", rowNumber)})`,
@@ -2263,6 +2319,14 @@ togglePanelButton.addEventListener("click", () => {
   uiState.controlsHidden = !uiState.controlsHidden;
   saveUiState();
   render();
+});
+
+summaryGrid.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-retirement-year-step]");
+  if (!button) {
+    return;
+  }
+  adjustRetirementYear(Number(button.dataset.retirementYearStep));
 });
 
 toggleTableWidthButton.addEventListener("click", () => {

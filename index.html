@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pension Forecaster</title>
-    <link rel="stylesheet" href="./styles.css?v=20260517a" />
+    <link rel="stylesheet" href="./styles.css?v=20260519i" />
   </head>
   <body>
     <div class="page-shell">
@@ -13,7 +13,7 @@
           <p class="eyebrow">Pension projection tool</p>
           <div class="title-row">
             <h1>Pension Forecaster</h1>
-            <p class="version-badge">Version 2.5</p>
+            <p class="version-badge">Version 2.6</p>
           </div>
           <p class="hero-copy">
             A browser-based version of your spreadsheet with live updates, personal
@@ -58,6 +58,7 @@
               <label><span>Premium Bonds</span><input data-field="personalPremiumBonds" type="number" step="1000" /></label>
               <label><span>Premium Bonds growth</span><input data-field="personalPremiumBondsGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
               <label><span>Own state pension</span><input data-field="ownStatePension" type="number" step="1000" /></label>
+              <label><span>Own state pension growth</span><input data-field="ownStatePensionGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
               <label class="toggle"><span>Use defined benefits</span><input data-field="definedBenefitEnabled" type="checkbox" /></label>
               <div id="defined-benefit-fields" class="optional-field-group" hidden>
                 <label><span>DB start year</span><input data-field="definedBenefitStartYear" type="number" step="1" /></label>
@@ -84,14 +85,21 @@
                   <option value="3">High</option>
                 </select>
               </label>
-              <label><span>Pre-retirement low</span><input data-field="growthLow" data-format="percent-1" type="number" step="0.1" /></label>
-              <label><span>Pre-retirement mid</span><input data-field="growthMid" data-format="percent-1" type="number" step="0.1" /></label>
-              <label><span>Pre-retirement high</span><input data-field="growthHigh" data-format="percent-1" type="number" step="0.1" /></label>
-              <label><span>Post-retirement low</span><input data-field="postRetirementGrowthLow" data-format="percent-1" type="number" step="0.1" /></label>
-              <label><span>Post-retirement mid</span><input data-field="postRetirementGrowthMid" data-format="percent-1" type="number" step="0.1" /></label>
-              <label><span>Post-retirement high</span><input data-field="postRetirementGrowthHigh" data-format="percent-1" type="number" step="0.1" /></label>
+              <div class="growth-rate-grid">
+                <p></p>
+                <p>Pre-retirement</p>
+                <p>Post-retirement</p>
+                <p data-growth-scenario="1">Low</p>
+                <label data-growth-scenario="1"><span>Low pre-retirement</span><input data-field="growthLow" data-format="percent-1" type="number" step="0.1" /></label>
+                <label data-growth-scenario="1"><span>Low post-retirement</span><input data-field="postRetirementGrowthLow" data-format="percent-1" type="number" step="0.1" /></label>
+                <p data-growth-scenario="2">Mid</p>
+                <label data-growth-scenario="2"><span>Mid pre-retirement</span><input data-field="growthMid" data-format="percent-1" type="number" step="0.1" /></label>
+                <label data-growth-scenario="2"><span>Mid post-retirement</span><input data-field="postRetirementGrowthMid" data-format="percent-1" type="number" step="0.1" /></label>
+                <p data-growth-scenario="3">High</p>
+                <label data-growth-scenario="3"><span>High pre-retirement</span><input data-field="growthHigh" data-format="percent-1" type="number" step="0.1" /></label>
+                <label data-growth-scenario="3"><span>High post-retirement</span><input data-field="postRetirementGrowthHigh" data-format="percent-1" type="number" step="0.1" /></label>
+              </div>
               <label class="toggle"><span>Apply pot growth</span><input data-field="applyPotGrowth" type="checkbox" /></label>
-              <label class="toggle"><span>Take 25% in year 1</span><input data-field="take25PercentYear1" type="checkbox" /></label>
             </div>
           </section>
 
@@ -116,16 +124,18 @@
             <h2>Partner Details</h2>
             <div class="field-grid">
               <label class="toggle"><span>Use partner details</span><input data-field="partnerDetailsEnabled" type="checkbox" /></label>
-              <label><span>Partner year of birth</span><input data-field="partnerBirthYear" type="number" step="1" /></label>
-              <label><span>Partner work income</span><input data-field="partnerWorkIncome" type="number" step="1000" /></label>
-              <label><span>Partner work pension</span><input data-field="partnerWorkPension" type="number" step="1000" /></label>
-              <label><span>Partner state pension</span><input data-field="partnerStatePension" type="number" step="1000" /></label>
-              <label><span>Partner savings</span><input data-field="partnerSavings" type="number" step="1000" /></label>
-              <label><span>Partner savings growth</span><input data-field="partnerSavingsGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
-              <label class="toggle"><span>CPI on partner work</span><input data-field="partnerWorkApplyCpi" type="checkbox" /></label>
-              <label><span>Partner work CPI</span><input data-field="partnerWorkCpiRate" data-format="percent-1" type="number" step="0.1" /></label>
-              <label class="toggle"><span>CPI on state/work pensions</span><input data-field="statePensionApplyCpi" type="checkbox" /></label>
-              <label><span>State/work pension CPI</span><input data-field="statePensionCpiRate" data-format="percent-1" type="number" step="0.1" /></label>
+              <div id="partner-detail-fields" class="optional-field-group">
+                <label><span>Partner year of birth</span><input data-field="partnerBirthYear" type="number" step="1" /></label>
+                <label><span>Partner work income</span><input data-field="partnerWorkIncome" type="number" step="1000" /></label>
+                <label><span>Partner work pension</span><input data-field="partnerWorkPension" type="number" step="1000" /></label>
+                <label><span>Partner state pension</span><input data-field="partnerStatePension" type="number" step="1000" /></label>
+                <label><span>Partner savings</span><input data-field="partnerSavings" type="number" step="1000" /></label>
+                <label><span>Partner savings growth</span><input data-field="partnerSavingsGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
+                <label class="toggle"><span>CPI on partner work</span><input data-field="partnerWorkApplyCpi" type="checkbox" /></label>
+                <label><span>Partner work CPI</span><input data-field="partnerWorkCpiRate" data-format="percent-1" type="number" step="0.1" /></label>
+                <label class="toggle"><span>CPI on partner pensions</span><input data-field="statePensionApplyCpi" type="checkbox" /></label>
+                <label><span>Partner pension CPI</span><input data-field="statePensionCpiRate" data-format="percent-1" type="number" step="0.1" /></label>
+              </div>
             </div>
           </section>
 
@@ -133,11 +143,24 @@
             <h2>Optional Drawdown</h2>
             <div class="field-grid">
               <label class="toggle"><span>Use regular drawdown</span><input data-field="regularDrawdownEnabled" type="checkbox" /></label>
+              <label class="toggle"><span>Year 1 TFLS</span><input data-field="take25PercentYear1" type="checkbox" /></label>
+              <div id="regular-drawdown-fields" class="optional-field-group" hidden>
+                <label><span>Regular drawdown</span><input data-field="regularDrawdownAmount" type="number" step="1000" /></label>
+                <label><span>Regular drawdown years</span><input data-field="regularDrawdownYears" type="number" step="1" /></label>
+              </div>
+              <div id="year-one-tfls-fields" class="optional-field-group" hidden>
+                <label>
+                  <span>Year 1 TFLS option</span>
+                  <select data-field="yearOneTflsMode">
+                    <option value="full">Full 25%</option>
+                    <option value="defined">Defined amount</option>
+                  </select>
+                </label>
+                <label><span>Year 1 TFLS amount</span><input data-field="yearOneTflsAmount" type="number" step="1000" /></label>
+              </div>
               <label class="toggle"><span>Tax optimisation mode</span><input data-field="taxOptimisationMode" type="checkbox" /></label>
               <label class="toggle"><span>Use partner savings for tax optimisation</span><input data-field="usePartnerSavingsForTaxOptimisation" type="checkbox" /></label>
               <label class="toggle"><span>Use TFLS by 75</span><input data-field="useTflsBy75" type="checkbox" /></label>
-              <label><span>Regular drawdown</span><input data-field="regularDrawdownAmount" type="number" step="1000" /></label>
-              <label><span>Regular drawdown years</span><input data-field="regularDrawdownYears" type="number" step="1" /></label>
             </div>
           </section>
         </aside>
@@ -211,6 +234,6 @@
       </section>
     </div>
 
-    <script src="./app.js?v=20260517a"></script>
+    <script src="./app.js?v=20260519i"></script>
   </body>
 </html>
