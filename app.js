@@ -46,6 +46,7 @@ const DEFAULT_STATE = {
   carFrequencyYears: 4,
   carStartYear: 2,
   applyCpiIncome: true,
+  incomeValuesRelativeToToday: true,
   applyCpiBills: true,
   applyCpiHolidays: true,
   cpiRate: 0.025,
@@ -132,6 +133,7 @@ const toggleTableWidthButton = document.getElementById("toggle-table-width-butto
 const exportTableButton = document.getElementById("export-table-button");
 const exportFormulaButton = document.getElementById("export-formula-button");
 const exportPdfButton = document.getElementById("export-pdf-button");
+const exportYearButton = document.getElementById("export-year-button");
 const exportButton = document.getElementById("export-button");
 const resetButton = document.getElementById("reset-button");
 const importFile = document.getElementById("import-file");
@@ -596,7 +598,11 @@ function calculateProjection(source) {
     const age = source.retirementAge + yearIndex - 1;
     const partnerAge = calendarYear - source.partnerBirthYear;
     const incomeBase = yearIndex <= 10 ? source.incomeRequired : source.incomeAfterYear10;
-    const incomeCpiYears = yearsToRetirement + yearIndex - 1;
+    const incomeCpiYears = source.incomeValuesRelativeToToday
+      ? yearsToRetirement + yearIndex - 1
+      : yearIndex <= 10
+        ? yearIndex - 1
+        : yearIndex - 11;
     const incomeRequired = compoundAnnual(incomeBase, source.cpiRate, incomeCpiYears, source.applyCpiIncome);
     const holidays = compoundAnnual(source.holidaysAnnual, source.cpiRate, yearIndex, source.applyCpiHolidays);
     const carCost =
@@ -752,6 +758,12 @@ function calculateProjection(source) {
     const totalDesignated = designatedForTaxFree + extraDesignationForTaxable;
     const crystallisedToDateCurrent = crystallisedToDate + designatedForTaxFree;
     const openingPot = uncrystallisedPot + crystallisedPot;
+    const openingUncrystallisedPot = uncrystallisedPot;
+    const openingCrystallisedFund = crystallisedPot;
+    const openingIsaSavings = isaSavingsBalance;
+    const openingBankSavings = bankSavingsBalance;
+    const openingPremiumBonds = premiumBondsBalance;
+    const openingPartnerSavings = partnerSavingsBalance;
     const uncrystallisedBeforeGrowth = Math.max(0, uncrystallisedPot - totalDesignated);
     const crystallisedBeforeGrowth = Math.max(0, crystallisedPot + newCrystallisedFromTaxFree + extraDesignationForTaxable - totalTaxableWithdrawal);
     const totalWithdrawn = taxFreeCashActual + totalTaxableWithdrawal;
@@ -841,6 +853,12 @@ function calculateProjection(source) {
       marginalTaxRate: taxBreakdown.marginalTaxRate,
       householdBills,
       excessNet,
+      openingUncrystallisedPot,
+      openingCrystallisedFund,
+      openingIsaSavings,
+      openingBankSavings,
+      openingPremiumBonds,
+      openingPartnerSavings,
       uncrystallisedPot: uncrystallisedAfterGrowth,
       crystallisedPot: crystallisedToDateCurrent,
       crystallisedFundLeft: crystallisedAfterGrowth,
@@ -1366,7 +1384,7 @@ function getColumnCalculationNote(key, label) {
     yearIndex: 'Year number from retirement start.',
     calendarYear: 'Retirement year + (Year - 1).',
     age: 'Retirement age + (Year - 1).',
-    incomeRequired: 'Base income target inflated from today to the projection year when CPI is applied, before car/bills/tax.',
+    incomeRequired: 'Base income target after CPI. When income values are relative to today it inflates from now; otherwise each entered income starts from its first relevant retirement year.',
     carCost: 'Car cost applied in the configured replacement years only.',
     totalIncomeRequired: 'Gross income required + Car.',
     partnerIncome: 'Partner work income, stopping when state pension starts.',
@@ -1908,6 +1926,80 @@ function exportState() {
   URL.revokeObjectURL(url);
 }
 
+function percentForExport(value) {
+  return Math.round((Number(value) || 0) * 1000) / 10;
+}
+
+function moneyForExport(value) {
+  return Math.round(normaliseMoney(value));
+}
+
+function exportSpecificYear() {
+  const projection = calculateProjection(state);
+  const defaultYear = String(projection.retirementYear);
+  const requestedYear = prompt("Export which calendar year?", defaultYear);
+  if (requestedYear === null) {
+    return;
+  }
+
+  const calendarYear = Number(requestedYear);
+  const rowIndex = projection.rows.findIndex((row) => row.calendarYear === calendarYear);
+  if (!Number.isInteger(calendarYear) || rowIndex === -1) {
+    alert(`No projection row found for ${requestedYear}. Choose a year from ${projection.retirementYear} to ${projection.planEndYear}.`);
+    return;
+  }
+
+  const row = projection.rows[rowIndex];
+  const previousRow = rowIndex > 0 ? projection.rows[rowIndex - 1] : null;
+  const priorLumpSumAllowance = previousRow?.remainingLumpSumAllowance ?? projection.remainingLumpSumAllowanceStart;
+  const taxFreeLumpSumsThisYear = row.taxFreeCash + row.definedBenefitLumpSum;
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    settings: {
+      birthYear: projection.birthYear,
+      currentYear: row.calendarYear,
+      planningAge: projection.planEndAge,
+      lumpSumAllowance: UK_TAX_RULES.standardLumpSumAllowance,
+      taxFreeLumpSumsTaken: moneyForExport(UK_TAX_RULES.standardLumpSumAllowance - priorLumpSumAllowance),
+      taxFreeLumpSumsThisYear: moneyForExport(taxFreeLumpSumsThisYear),
+      crystallisedPension: moneyForExport(row.openingCrystallisedFund),
+      uncrystallisedPension: moneyForExport(row.openingUncrystallisedPot),
+      taxAllowance: moneyForExport(row.assumedTaxAllowance),
+      higherRateThreshold: UK_TAX_RULES.basicRateLimit,
+      basicTaxRate: percentForExport(UK_TAX_RULES.basicRate),
+      higherTaxRate: percentForExport(UK_TAX_RULES.higherRate),
+      bankBalance: moneyForExport(row.openingBankSavings),
+      bankInterestRate: percentForExport(state.personalBankInterestRate),
+      statePensionAmount: moneyForExport(row.ownStatePension),
+      definedBenefitPayments: moneyForExport(row.definedBenefitIncome),
+      targetEquivalentIncome: moneyForExport(row.totalIncomeRequired),
+      partnerStatePension: moneyForExport(row.partnerStatePension),
+      partnerWorkPension: moneyForExport(row.partnerWorkPension),
+      partnerSavings: moneyForExport(row.openingPartnerSavings),
+      isaSource: moneyForExport(row.isaSavingsUsed),
+      savingsSource: moneyForExport(row.bankSavingsUsed),
+      premiumBondsSource: moneyForExport(row.premiumBondsUsed),
+      billsAmount: moneyForExport(row.householdBills),
+      billsFrequency: "annual",
+      holidaysAmount: moneyForExport(row.holidays),
+      holidaysFrequency: "annual",
+      carAmount: moneyForExport(row.carCost),
+      carFrequency: "annual",
+      growthRate: percentForExport(projection.postRetirementGrowthRate),
+      inflationRate: state.applyCpiIncome ? percentForExport(state.cpiRate) : 0,
+    },
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `pension-forecaster-${row.calendarYear}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -2025,6 +2117,7 @@ function exportFormulaWorkbookToExcel() {
     ["Income after year 10", state.incomeAfterYear10],
     ["CPI rate", state.cpiRate],
     ["Apply CPI to income", state.applyCpiIncome ? 1 : 0],
+    ["Income values relative to today", state.incomeValuesRelativeToToday ? 1 : 0],
     ["Car cost", state.carCost],
     ["Car frequency years", state.carFrequencyYears],
     ["Car start year", state.carStartYear],
@@ -2096,7 +2189,7 @@ function exportFormulaWorkbookToExcel() {
       yearIndex: rowIndex === 0 ? "=1" : `=${cell("yearIndex", previousRow)}+1`,
       calendarYear: rowIndex === 0 ? `=${assumptionRef["Retirement year"]}` : `=${cell("calendarYear", previousRow)}+1`,
       age: rowIndex === 0 ? `=${assumptionRef["Retirement age"]}` : `=${cell("age", previousRow)}+1`,
-      incomeRequired: `=IF(${assumptionRef["Apply CPI to income"]}=1,IF(${cell("yearIndex", rowNumber)}<=10,${assumptionRef["Income required"]},${assumptionRef["Income after year 10"]})*POWER(1+${assumptionRef["CPI rate"]}/12,12*(${assumptionRef["Retirement year"]}-${assumptionRef["Current year"]}+${cell("yearIndex", rowNumber)}-1)),IF(${cell("yearIndex", rowNumber)}<=10,${assumptionRef["Income required"]},${assumptionRef["Income after year 10"]}))`,
+      incomeRequired: `=LET(yearNo,${cell("yearIndex", rowNumber)},incomeBase,IF(yearNo<=10,${assumptionRef["Income required"]},${assumptionRef["Income after year 10"]}),cpiYears,IF(${assumptionRef["Income values relative to today"]}=1,${assumptionRef["Retirement year"]}-${assumptionRef["Current year"]}+yearNo-1,IF(yearNo<=10,yearNo-1,yearNo-11)),IF(${assumptionRef["Apply CPI to income"]}=1,incomeBase*POWER(1+${assumptionRef["CPI rate"]}/12,12*cpiYears),incomeBase))`,
       carCost: `=IF(AND(${assumptionRef["Car cost"]}>0,${cell("yearIndex", rowNumber)}>=${assumptionRef["Car start year"]},MOD(${cell("yearIndex", rowNumber)}-${assumptionRef["Car start year"]},${assumptionRef["Car frequency years"]})=0),${assumptionRef["Car cost"]},0)`,
       totalIncomeRequired: `=${cell("incomeRequired", rowNumber)}+${cell("carCost", rowNumber)}`,
       partnerIncome: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}<68,IF(${assumptionRef["Apply CPI to partner work"]}=1,${assumptionRef["Partner work income"]}*POWER(1+${assumptionRef["Partner work CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner work income"]}),0),0)`,
@@ -2338,6 +2431,7 @@ toggleTableWidthButton.addEventListener("click", () => {
 exportTableButton.addEventListener("click", exportTableToExcel);
 exportFormulaButton.addEventListener("click", exportFormulaWorkbookToExcel);
 exportPdfButton.addEventListener("click", exportPageToPdf);
+exportYearButton.addEventListener("click", exportSpecificYear);
 exportButton.addEventListener("click", exportState);
 resetButton.addEventListener("click", resetState);
 importFile.addEventListener("change", importState);
