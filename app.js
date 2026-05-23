@@ -134,6 +134,7 @@ const exportTableButton = document.getElementById("export-table-button");
 const exportFormulaButton = document.getElementById("export-formula-button");
 const exportPdfButton = document.getElementById("export-pdf-button");
 const exportYearButton = document.getElementById("export-year-button");
+const exportPlanButton = document.getElementById("export-plan-button");
 const exportButton = document.getElementById("export-button");
 const resetButton = document.getElementById("reset-button");
 const importFile = document.getElementById("import-file");
@@ -467,6 +468,51 @@ function solveAdditionalTaxableWithdrawal(existingTaxableIncome, targetNet, allo
   return high;
 }
 
+function estimateTotalTaxWithBankInterest(taxableIncome, bankInterest, allowanceBase) {
+  const taxBreakdown = estimateUkIncomeTax(taxableIncome, allowanceBase);
+  const bankInterestTaxBreakdown = estimateBankInterestTax(taxableIncome, bankInterest, allowanceBase);
+  return {
+    taxBreakdown,
+    bankInterestTaxBreakdown,
+    estimatedTax: taxBreakdown.totalTax + bankInterestTaxBreakdown.bankInterestTax,
+  };
+}
+
+function netFromAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome, bankInterest, taxableWithdrawal, allowanceBase) {
+  const currentTax = estimateTotalTaxWithBankInterest(existingTaxableIncome, bankInterest, allowanceBase).estimatedTax;
+  const nextTax = estimateTotalTaxWithBankInterest(existingTaxableIncome + taxableWithdrawal, bankInterest, allowanceBase).estimatedTax;
+  return taxableWithdrawal - Math.max(0, nextTax - currentTax);
+}
+
+function solveAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome, bankInterest, targetNet, allowanceBase, maxWithdrawal = 1e7) {
+  if (targetNet <= 0 || maxWithdrawal <= 0) {
+    return 0;
+  }
+
+  const cappedMaxWithdrawal = Math.max(0, maxWithdrawal);
+  const maxNet = netFromAdditionalTaxableWithdrawalWithBankInterest(
+    existingTaxableIncome,
+    bankInterest,
+    cappedMaxWithdrawal,
+    allowanceBase,
+  );
+  if (maxNet <= targetNet) {
+    return cappedMaxWithdrawal;
+  }
+
+  let low = 0;
+  let high = cappedMaxWithdrawal;
+  for (let i = 0; i < 40; i += 1) {
+    const mid = (low + high) / 2;
+    if (netFromAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome, bankInterest, mid, allowanceBase) >= targetNet) {
+      high = mid;
+    } else {
+      low = mid;
+    }
+  }
+  return high;
+}
+
 function calculateTaxOptimisedWithdrawal({
   targetGrossIncome,
   myOtherIncome,
@@ -719,23 +765,22 @@ function calculateProjection(source) {
     const targetTaxableWithdrawal = source.taxOptimisationMode
       ? taxOptimisedWithdrawal.taxableWithdrawal
       : Math.max(0, pensionNeededGross - taxFreeCashActual);
-    const extraDesignationForTaxable = Math.min(
+    let extraDesignationForTaxable = Math.min(
       Math.max(0, targetTaxableWithdrawal - taxableCapacityBeforeExtra),
       Math.max(0, uncrystallisedPot - designatedForTaxFree),
     );
 
     const availableTaxableCapacity = taxableCapacityBeforeExtra + extraDesignationForTaxable;
-    const additionalTaxableWithdrawal = Math.min(targetTaxableWithdrawal, availableTaxableCapacity);
-    const totalTaxableWithdrawal = additionalTaxableWithdrawal;
-
-    const myTaxableIncome = myOtherIncome + totalTaxableWithdrawal;
-    const taxBreakdown = estimateUkIncomeTax(myTaxableIncome, allowanceBase);
-    const bankInterestTaxBreakdown = estimateBankInterestTax(myTaxableIncome, bankInterestGross, allowanceBase);
-    const estimatedTax = taxBreakdown.totalTax + bankInterestTaxBreakdown.bankInterestTax;
-    totalBankInterestTax += bankInterestTaxBreakdown.bankInterestTax;
-    totalPsaUsed += Math.min(bankInterestTaxBreakdown.bankInterestGross, bankInterestTaxBreakdown.personalSavingsAllowance);
-    const taxableAfterTax = Math.max(0, myTaxableIncome - taxBreakdown.totalTax - myOtherIncome);
-    const sourcedFromSavings = source.taxOptimisationMode
+    let additionalTaxableWithdrawal = Math.min(targetTaxableWithdrawal, availableTaxableCapacity);
+    let totalTaxableWithdrawal = additionalTaxableWithdrawal;
+    let myTaxableIncome = myOtherIncome + totalTaxableWithdrawal;
+    let {
+      taxBreakdown,
+      bankInterestTaxBreakdown,
+      estimatedTax,
+    } = estimateTotalTaxWithBankInterest(myTaxableIncome, bankInterestGross, allowanceBase);
+    const householdBills = compoundAnnual(source.billsAnnual, source.cpiRate, yearIndex, source.applyCpiBills);
+    let sourcedFromSavings = source.taxOptimisationMode
       ? Math.min(savingsAvailableForTaxOptimisation, taxOptimisedWithdrawal.savingsUsed)
       : 0;
     const partnerSavingsUsedForTaxSmoothing = source.taxOptimisationMode
@@ -749,10 +794,82 @@ function calculateProjection(source) {
       Math.max(0, partnerSavingsAvailableForTaxOptimisation - partnerSavingsUsedForTaxSmoothing),
     );
     savingsAllocation.partnerSavingsUsed += partnerSavingsUsedForTaxSmoothing;
-    const incomeTotal = baseIncomeTotal + definedBenefitLumpSum + taxFreeCashActual;
-    const incomeCovered = incomeTotal + totalTaxableWithdrawal + sourcedFromSavings;
+    let incomeTotal = baseIncomeTotal + definedBenefitLumpSum + taxFreeCashActual;
+    let incomeCovered = incomeTotal + totalTaxableWithdrawal + sourcedFromSavings;
+
+    const addSavingsTopUp = (amount) => {
+      const topUpAllocation = allocateSavingsWithdrawal(
+        amount,
+        Math.max(0, bankSavingsBalance - savingsAllocation.bankSavingsUsed),
+        Math.max(0, premiumBondsBalance - savingsAllocation.premiumBondsUsed),
+        Math.max(0, isaSavingsBalance - savingsAllocation.isaSavingsUsed),
+        Math.max(0, partnerSavingsAvailableForTaxOptimisation - savingsAllocation.partnerSavingsUsed),
+      );
+      const topUpUsed = topUpAllocation.bankSavingsUsed
+        + topUpAllocation.premiumBondsUsed
+        + topUpAllocation.isaSavingsUsed
+        + topUpAllocation.partnerSavingsUsed;
+      savingsAllocation.bankSavingsUsed += topUpAllocation.bankSavingsUsed;
+      savingsAllocation.premiumBondsUsed += topUpAllocation.premiumBondsUsed;
+      savingsAllocation.isaSavingsUsed += topUpAllocation.isaSavingsUsed;
+      savingsAllocation.partnerSavingsUsed += topUpAllocation.partnerSavingsUsed;
+      sourcedFromSavings += topUpUsed;
+      incomeCovered += topUpUsed;
+      return topUpUsed;
+    };
+
+    let freeCashDeficit = Math.max(0, householdBills + holidays + estimatedTax - incomeCovered);
+    if (freeCashDeficit > 0.01) {
+      const extraTaxFreeCash = Math.min(
+        freeCashDeficit,
+        Math.max(0, lumpSumAllowanceAfterDefinedBenefit - taxFreeCashActual),
+        Math.max(0, uncrystallisedPot - designatedForTaxFree - extraDesignationForTaxable) * 0.25,
+      );
+      if (extraTaxFreeCash > 0) {
+        const extraDesignatedForTaxFree = extraTaxFreeCash * 4;
+        designatedForTaxFree += extraDesignatedForTaxFree;
+        taxFreeCashActual += extraTaxFreeCash;
+        newCrystallisedFromTaxFree += extraTaxFreeCash * 3;
+        incomeTotal += extraTaxFreeCash;
+        incomeCovered += extraTaxFreeCash;
+        freeCashDeficit -= extraTaxFreeCash;
+      }
+    }
+
+    if (freeCashDeficit > 0.01) {
+      freeCashDeficit -= addSavingsTopUp(freeCashDeficit);
+    }
+
+    if (freeCashDeficit > 0.01) {
+      const remainingCrystallisedCapacity = Math.max(
+        0,
+        crystallisedPot + newCrystallisedFromTaxFree + extraDesignationForTaxable - totalTaxableWithdrawal,
+      );
+      const remainingUncrystallisedCapacity = Math.max(0, uncrystallisedPot - designatedForTaxFree - extraDesignationForTaxable);
+      const taxableWithdrawalTopUp = solveAdditionalTaxableWithdrawalWithBankInterest(
+        myTaxableIncome,
+        bankInterestGross,
+        freeCashDeficit,
+        allowanceBase,
+        remainingCrystallisedCapacity + remainingUncrystallisedCapacity,
+      );
+      const extraCrystallisedNeeded = Math.max(0, taxableWithdrawalTopUp - remainingCrystallisedCapacity);
+      extraDesignationForTaxable += Math.min(extraCrystallisedNeeded, remainingUncrystallisedCapacity);
+      additionalTaxableWithdrawal += taxableWithdrawalTopUp;
+      totalTaxableWithdrawal += taxableWithdrawalTopUp;
+      myTaxableIncome = myOtherIncome + totalTaxableWithdrawal;
+      ({
+        taxBreakdown,
+        bankInterestTaxBreakdown,
+        estimatedTax,
+      } = estimateTotalTaxWithBankInterest(myTaxableIncome, bankInterestGross, allowanceBase));
+      incomeCovered = incomeTotal + totalTaxableWithdrawal + sourcedFromSavings;
+    }
+
+    totalBankInterestTax += bankInterestTaxBreakdown.bankInterestTax;
+    totalPsaUsed += Math.min(bankInterestTaxBreakdown.bankInterestGross, bankInterestTaxBreakdown.personalSavingsAllowance);
+    const taxableAfterTax = Math.max(0, myTaxableIncome - taxBreakdown.totalTax - myOtherIncome);
     const incomeShortfall = Math.max(0, totalIncomeRequired - incomeCovered);
-    const householdBills = compoundAnnual(source.billsAnnual, source.cpiRate, yearIndex, source.applyCpiBills);
     const excessNet = incomeCovered - estimatedTax - householdBills - holidays;
 
     const totalDesignated = designatedForTaxFree + extraDesignationForTaxable;
@@ -1934,6 +2051,15 @@ function moneyForExport(value) {
   return Math.round(normaliseMoney(value));
 }
 
+function plainObjectForExport(source) {
+  return Object.fromEntries(
+    Object.entries(source).map(([key, value]) => [
+      key,
+      typeof value === "number" ? (Number.isFinite(value) ? value : null) : value,
+    ]),
+  );
+}
+
 function exportSpecificYear() {
   const projection = calculateProjection(state);
   const defaultYear = String(projection.retirementYear);
@@ -1954,8 +2080,11 @@ function exportSpecificYear() {
   const priorLumpSumAllowance = previousRow?.remainingLumpSumAllowance ?? projection.remainingLumpSumAllowanceStart;
   const taxFreeLumpSumsThisYear = row.taxFreeCash + row.definedBenefitLumpSum;
   const payload = {
-    version: 1,
+    version: 2,
+    schema: "pension-forecaster-year-export",
     exportedAt: new Date().toISOString(),
+    selectedCalendarYear: row.calendarYear,
+    selectedYearIndex: row.yearIndex,
     settings: {
       birthYear: projection.birthYear,
       currentYear: row.calendarYear,
@@ -1989,6 +2118,128 @@ function exportSpecificYear() {
       growthRate: percentForExport(projection.postRetirementGrowthRate),
       inflationRate: state.applyCpiIncome ? percentForExport(state.cpiRate) : 0,
     },
+    assumptions: {
+      sourceState: plainObjectForExport(state),
+      taxRules: plainObjectForExport(UK_TAX_RULES),
+      plan: {
+        currentYear: state.currentYear,
+        currentAge: state.currentAge,
+        yearOfBirth: state.yearOfBirth,
+        retirementYear: state.retirementYear,
+        retirementAge: state.retirementAge,
+        planYears: state.planYears,
+        limitPlanYears: state.limitPlanYears,
+        selectedCalendarYear: row.calendarYear,
+        selectedAge: row.age,
+        selectedYearIndex: row.yearIndex,
+      },
+      growthAndInflation: {
+        scenario: state.scenario,
+        growthLow: state.growthLow,
+        growthMid: state.growthMid,
+        growthHigh: state.growthHigh,
+        postRetirementGrowthLow: state.postRetirementGrowthLow,
+        postRetirementGrowthMid: state.postRetirementGrowthMid,
+        postRetirementGrowthHigh: state.postRetirementGrowthHigh,
+        preRetirementGrowthRateUsed: projection.preRetirementGrowthRate,
+        postRetirementGrowthRateUsed: projection.postRetirementGrowthRate,
+        applyPotGrowth: state.applyPotGrowth,
+        cpiRate: state.cpiRate,
+        applyCpiIncome: state.applyCpiIncome,
+        incomeValuesRelativeToToday: state.incomeValuesRelativeToToday,
+        applyCpiBills: state.applyCpiBills,
+        applyCpiHolidays: state.applyCpiHolidays,
+        applyTaxAllowanceCpi: state.applyTaxAllowanceCpi,
+        taxAllowanceCpiRate: state.taxAllowanceCpiRate,
+      },
+      incomeNeeds: {
+        incomeRequired: state.incomeRequired,
+        incomeAfterYear10: state.incomeAfterYear10,
+        billsAnnual: state.billsAnnual,
+        holidaysAnnual: state.holidaysAnnual,
+        carCost: state.carCost,
+        carFrequencyYears: state.carFrequencyYears,
+        carStartYear: state.carStartYear,
+      },
+      pension: {
+        currentPot: state.currentPot,
+        currentCrystallisedPot: state.currentCrystallisedPot,
+        lumpSumAllowanceUsed: state.lumpSumAllowanceUsed,
+        retirementUncrystallisedPot: projection.retirementUncrystallisedPot,
+        retirementCrystallisedPot: projection.retirementCrystallisedPot,
+        totalRetirementPot: projection.totalRetirementPot,
+        remainingLumpSumAllowanceStart: projection.remainingLumpSumAllowanceStart,
+        taxFreeLumpSumAtRetirement: projection.taxFreeLumpSum,
+      },
+      drawdown: {
+        taxOptimisationMode: state.taxOptimisationMode,
+        regularDrawdownEnabled: state.regularDrawdownEnabled,
+        regularDrawdownAmount: state.regularDrawdownAmount,
+        regularDrawdownYears: state.regularDrawdownYears,
+        take25PercentYear1: state.take25PercentYear1,
+        yearOneTflsMode: state.yearOneTflsMode,
+        yearOneTflsAmount: state.yearOneTflsAmount,
+        useTflsBy75: state.useTflsBy75,
+      },
+      personalIncome: {
+        ownStatePension: state.ownStatePension,
+        ownStatePensionGrowthRate: state.ownStatePensionGrowthRate,
+        definedBenefitEnabled: state.definedBenefitEnabled,
+        definedBenefitStartYear: state.definedBenefitStartYear,
+        definedBenefitInitialLumpSum: state.definedBenefitInitialLumpSum,
+        definedBenefitInitialAnnualAmount: state.definedBenefitInitialAnnualAmount,
+        definedBenefitMaxYears: state.definedBenefitMaxYears,
+        definedBenefitGrowthRate: state.definedBenefitGrowthRate,
+      },
+      personalSavings: {
+        personalSavings: state.personalSavings,
+        personalSavingsGrowthRate: state.personalSavingsGrowthRate,
+        personalIsaSavings: state.personalIsaSavings,
+        personalIsaGrowthRate: state.personalIsaGrowthRate,
+        personalBankSavings: state.personalBankSavings,
+        personalBankInterestRate: state.personalBankInterestRate,
+        personalPremiumBonds: state.personalPremiumBonds,
+        personalPremiumBondsGrowthRate: state.personalPremiumBondsGrowthRate,
+        personalSavingsAtRetirement: projection.personalSavingsAtRetirement,
+        personalIsaSavingsAtRetirement: projection.personalIsaSavingsAtRetirement,
+        personalBankSavingsAtRetirement: projection.personalBankSavingsAtRetirement,
+        personalPremiumBondsAtRetirement: projection.personalPremiumBondsAtRetirement,
+      },
+      partner: {
+        partnerDetailsEnabled: state.partnerDetailsEnabled,
+        partnerBirthYear: state.partnerBirthYear,
+        partnerWorkIncome: state.partnerWorkIncome,
+        partnerWorkApplyCpi: state.partnerWorkApplyCpi,
+        partnerWorkCpiRate: state.partnerWorkCpiRate,
+        partnerStatePension: state.partnerStatePension,
+        partnerWorkPension: state.partnerWorkPension,
+        partnerSavings: state.partnerSavings,
+        partnerSavingsGrowthRate: state.partnerSavingsGrowthRate,
+        partnerSavingsAtRetirement: projection.partnerSavingsAtRetirement,
+        statePensionApplyCpi: state.statePensionApplyCpi,
+        statePensionCpiRate: state.statePensionCpiRate,
+        usePartnerSavingsForTaxOptimisation: state.usePartnerSavingsForTaxOptimisation,
+      },
+    },
+    projection: {
+      summary: {
+        birthYear: projection.birthYear,
+        retirementYear: projection.retirementYear,
+        yearsToRetirement: projection.yearsToRetirement,
+        planEndYear: projection.planEndYear,
+        planEndAge: projection.planEndAge,
+        preRetirementGrowthRate: projection.preRetirementGrowthRate,
+        postRetirementGrowthRate: projection.postRetirementGrowthRate,
+        totalRetirementPot: projection.totalRetirementPot,
+        totalSeparateSavingsAtRetirement: projection.totalSeparateSavingsAtRetirement,
+        totalBankInterestTax: projection.totalBankInterestTax,
+        totalPsaUsed: projection.totalPsaUsed,
+        remainingLumpSumAllowanceStart: projection.remainingLumpSumAllowanceStart,
+        depletionYear: projection.depletionYear,
+      },
+      priorYear: previousRow ? plainObjectForExport(previousRow) : null,
+      year: plainObjectForExport(row),
+    },
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
@@ -1996,6 +2247,184 @@ function exportSpecificYear() {
   const a = document.createElement("a");
   a.href = url;
   a.download = `pension-forecaster-${row.calendarYear}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function buildPlanExportAssumptions(projection) {
+  return {
+    sourceState: plainObjectForExport(state),
+    taxRules: plainObjectForExport(UK_TAX_RULES),
+    plan: {
+      currentYear: state.currentYear,
+      currentAge: state.currentAge,
+      yearOfBirth: state.yearOfBirth,
+      retirementYear: state.retirementYear,
+      retirementAge: state.retirementAge,
+      planYears: state.planYears,
+      limitPlanYears: state.limitPlanYears,
+      planEndYear: projection.planEndYear,
+      planEndAge: projection.planEndAge,
+    },
+    growthAndInflation: {
+      scenario: state.scenario,
+      growthLow: state.growthLow,
+      growthMid: state.growthMid,
+      growthHigh: state.growthHigh,
+      postRetirementGrowthLow: state.postRetirementGrowthLow,
+      postRetirementGrowthMid: state.postRetirementGrowthMid,
+      postRetirementGrowthHigh: state.postRetirementGrowthHigh,
+      preRetirementGrowthRateUsed: projection.preRetirementGrowthRate,
+      postRetirementGrowthRateUsed: projection.postRetirementGrowthRate,
+      applyPotGrowth: state.applyPotGrowth,
+      cpiRate: state.cpiRate,
+      applyCpiIncome: state.applyCpiIncome,
+      incomeValuesRelativeToToday: state.incomeValuesRelativeToToday,
+      applyCpiBills: state.applyCpiBills,
+      applyCpiHolidays: state.applyCpiHolidays,
+      applyTaxAllowanceCpi: state.applyTaxAllowanceCpi,
+      taxAllowanceCpiRate: state.taxAllowanceCpiRate,
+    },
+    incomeNeeds: {
+      incomeRequired: state.incomeRequired,
+      incomeAfterYear10: state.incomeAfterYear10,
+      billsAnnual: state.billsAnnual,
+      holidaysAnnual: state.holidaysAnnual,
+      carCost: state.carCost,
+      carFrequencyYears: state.carFrequencyYears,
+      carStartYear: state.carStartYear,
+    },
+    pension: {
+      currentPot: state.currentPot,
+      currentCrystallisedPot: state.currentCrystallisedPot,
+      lumpSumAllowanceUsed: state.lumpSumAllowanceUsed,
+      retirementUncrystallisedPot: projection.retirementUncrystallisedPot,
+      retirementCrystallisedPot: projection.retirementCrystallisedPot,
+      totalRetirementPot: projection.totalRetirementPot,
+      remainingLumpSumAllowanceStart: projection.remainingLumpSumAllowanceStart,
+      taxFreeLumpSumAtRetirement: projection.taxFreeLumpSum,
+    },
+    drawdown: {
+      taxOptimisationMode: state.taxOptimisationMode,
+      regularDrawdownEnabled: state.regularDrawdownEnabled,
+      regularDrawdownAmount: state.regularDrawdownAmount,
+      regularDrawdownYears: state.regularDrawdownYears,
+      take25PercentYear1: state.take25PercentYear1,
+      yearOneTflsMode: state.yearOneTflsMode,
+      yearOneTflsAmount: state.yearOneTflsAmount,
+      useTflsBy75: state.useTflsBy75,
+    },
+    personalIncome: {
+      ownStatePension: state.ownStatePension,
+      ownStatePensionGrowthRate: state.ownStatePensionGrowthRate,
+      definedBenefitEnabled: state.definedBenefitEnabled,
+      definedBenefitStartYear: state.definedBenefitStartYear,
+      definedBenefitInitialLumpSum: state.definedBenefitInitialLumpSum,
+      definedBenefitInitialAnnualAmount: state.definedBenefitInitialAnnualAmount,
+      definedBenefitMaxYears: state.definedBenefitMaxYears,
+      definedBenefitGrowthRate: state.definedBenefitGrowthRate,
+    },
+    personalSavings: {
+      personalSavings: state.personalSavings,
+      personalSavingsGrowthRate: state.personalSavingsGrowthRate,
+      personalIsaSavings: state.personalIsaSavings,
+      personalIsaGrowthRate: state.personalIsaGrowthRate,
+      personalBankSavings: state.personalBankSavings,
+      personalBankInterestRate: state.personalBankInterestRate,
+      personalPremiumBonds: state.personalPremiumBonds,
+      personalPremiumBondsGrowthRate: state.personalPremiumBondsGrowthRate,
+      personalSavingsAtRetirement: projection.personalSavingsAtRetirement,
+      personalIsaSavingsAtRetirement: projection.personalIsaSavingsAtRetirement,
+      personalBankSavingsAtRetirement: projection.personalBankSavingsAtRetirement,
+      personalPremiumBondsAtRetirement: projection.personalPremiumBondsAtRetirement,
+    },
+    partner: {
+      partnerDetailsEnabled: state.partnerDetailsEnabled,
+      partnerBirthYear: state.partnerBirthYear,
+      partnerWorkIncome: state.partnerWorkIncome,
+      partnerWorkApplyCpi: state.partnerWorkApplyCpi,
+      partnerWorkCpiRate: state.partnerWorkCpiRate,
+      partnerStatePension: state.partnerStatePension,
+      partnerWorkPension: state.partnerWorkPension,
+      partnerSavings: state.partnerSavings,
+      partnerSavingsGrowthRate: state.partnerSavingsGrowthRate,
+      partnerSavingsAtRetirement: projection.partnerSavingsAtRetirement,
+      statePensionApplyCpi: state.statePensionApplyCpi,
+      statePensionCpiRate: state.statePensionCpiRate,
+      usePartnerSavingsForTaxOptimisation: state.usePartnerSavingsForTaxOptimisation,
+    },
+  };
+}
+
+function buildProjectionExportSummary(projection) {
+  return {
+    birthYear: projection.birthYear,
+    retirementYear: projection.retirementYear,
+    yearsToRetirement: projection.yearsToRetirement,
+    planEndYear: projection.planEndYear,
+    planEndAge: projection.planEndAge,
+    preRetirementGrowthRate: projection.preRetirementGrowthRate,
+    postRetirementGrowthRate: projection.postRetirementGrowthRate,
+    retirementUncrystallisedPot: projection.retirementUncrystallisedPot,
+    retirementCrystallisedPot: projection.retirementCrystallisedPot,
+    totalRetirementPot: projection.totalRetirementPot,
+    personalSavingsAtRetirement: projection.personalSavingsAtRetirement,
+    personalIsaSavingsAtRetirement: projection.personalIsaSavingsAtRetirement,
+    personalBankSavingsAtRetirement: projection.personalBankSavingsAtRetirement,
+    personalPremiumBondsAtRetirement: projection.personalPremiumBondsAtRetirement,
+    partnerSavingsAtRetirement: projection.partnerSavingsAtRetirement,
+    totalSeparateSavingsAtRetirement: projection.totalSeparateSavingsAtRetirement,
+    totalBankInterestTax: projection.totalBankInterestTax,
+    totalPsaUsed: projection.totalPsaUsed,
+    taxFreeLumpSum: projection.taxFreeLumpSum,
+    remainingLumpSumAllowanceStart: projection.remainingLumpSumAllowanceStart,
+    depletionYear: projection.depletionYear,
+  };
+}
+
+function exportPlan() {
+  const projection = calculateProjection(state);
+  const rows = projection.rows.map((row) => plainObjectForExport(row));
+  const payload = {
+    version: 1,
+    schema: "pension-forecaster-plan-export",
+    exportedAt: new Date().toISOString(),
+    rowCount: rows.length,
+    assumptions: buildPlanExportAssumptions(projection),
+    projection: {
+      summary: buildProjectionExportSummary(projection),
+      columns: Object.keys(rows[0] || {}),
+      rows,
+    },
+    chart: {
+      stackedBarSeries: [
+        { key: "partnerIncome", label: "Partner work income" },
+        { key: "partnerStatePension", label: "Partner state pension" },
+        { key: "partnerWorkPension", label: "Partner work pension" },
+        { key: "ownStatePension", label: "My state pension" },
+        { key: "definedBenefitIncome", label: "My DB pension" },
+        { key: "definedBenefitLumpSum", label: "DB lump sum" },
+        { key: "taxFreeCash", label: "TFLS" },
+        { key: "grossPensionWithdrawal", label: "Taxable pension withdrawn" },
+        { key: "sourcedFromSavings", label: "Sourced from savings" },
+      ],
+      comparisonSeries: [
+        { key: "totalIncomeRequired", label: "Required income" },
+        { key: "householdBills", label: "Bills" },
+        { key: "holidays", label: "Holidays" },
+        { key: "estimatedTax", label: "Estimated tax" },
+        { key: "excessNet", label: "Free cash" },
+        { key: "totalPotAfterGrowth", label: "Pot after growth" },
+        { key: "savingsLeft", label: "Savings left" },
+      ],
+    },
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "pension-forecaster-plan.json";
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -2432,6 +2861,7 @@ exportTableButton.addEventListener("click", exportTableToExcel);
 exportFormulaButton.addEventListener("click", exportFormulaWorkbookToExcel);
 exportPdfButton.addEventListener("click", exportPageToPdf);
 exportYearButton.addEventListener("click", exportSpecificYear);
+exportPlanButton.addEventListener("click", exportPlan);
 exportButton.addEventListener("click", exportState);
 resetButton.addEventListener("click", resetState);
 importFile.addEventListener("change", importState);
