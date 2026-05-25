@@ -13,7 +13,7 @@
           <p class="eyebrow">Pension projection tool</p>
           <div class="title-row">
             <h1>Pension Forecaster</h1>
-            <p class="version-badge">Version 2.8</p>
+            <p class="version-badge">Version 2.9</p>
           </div>
           <p class="hero-copy">
             A browser-based version of your spreadsheet with live updates, personal
@@ -21,7 +21,7 @@
           </p>
         </div>
         <div class="hero-actions">
-          <label class="button secondary" for="import-file">Import details</label>
+          <label class="button secondary" for="import-file">Import plan</label>
           <input id="import-file" type="file" accept=".csv,.json" hidden />
           <button id="toggle-panel-button" class="button secondary" type="button">Hide controls</button>
           <select id="table-view-select" class="button secondary table-view-select" aria-label="Table view"><option value="summarised">Summarised</option><option value="detailed">Detailed</option><option value="granular">Granular</option><option value="custom">Custom</option></select>
@@ -33,9 +33,7 @@
           <button id="export-table-button" class="button secondary" type="button">Export table</button>
           <button id="export-formula-button" class="button secondary formula-export-button" type="button">Export Excel formulas</button>
           <button id="export-pdf-button" class="button secondary" type="button">Export PDF</button>
-          <button id="export-year-button" class="button secondary" type="button">Export year</button>
           <button id="export-plan-button" class="button secondary" type="button">Export plan</button>
-          <button id="export-button" class="button secondary" type="button">Export details</button>
           <button id="reset-button" class="button" type="button">Reset defaults</button>
         </div>
       </header>
@@ -45,6 +43,7 @@
           <section class="panel">
             <h2>Personal Details</h2>
             <div class="field-grid">
+              <label><span>Plan name</span><input data-field="planName" type="text" /></label>
               <label><span>Current year</span><input data-field="currentYear" type="number" step="1" readonly /></label>
               <label><span>Current age</span><input data-field="currentAge" type="number" step="1" readonly /></label>
               <label><span>Year of birth</span><input data-field="yearOfBirth" type="number" step="1" /></label>
@@ -164,6 +163,7 @@
               <label class="toggle"><span>Tax optimisation mode</span><input data-field="taxOptimisationMode" type="checkbox" /></label>
               <label class="toggle"><span>Use partner savings for tax optimisation</span><input data-field="usePartnerSavingsForTaxOptimisation" type="checkbox" /></label>
               <label class="toggle"><span>Use TFLS by 75</span><input data-field="useTflsBy75" type="checkbox" /></label>
+              <label class="toggle"><span>Force TFLS 25/75 pairing</span><input data-field="forceTflsTaxablePairing" type="checkbox" /></label>
             </div>
           </section>
         </aside>
@@ -233,6 +233,36 @@
         <div id="custom-fields-list" class="field-choice-grid"></div>
         <div class="field-dialog-actions">
           <button id="apply-custom-fields-button" class="button" type="button">Apply fields</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="basic-setup-dialog" class="field-dialog-backdrop" hidden>
+      <section class="field-dialog setup-dialog" role="dialog" aria-modal="true" aria-labelledby="basic-setup-title">
+        <div class="field-dialog-heading">
+          <h2 id="basic-setup-title">Basic plan setup</h2>
+          <button id="close-basic-setup-button" class="icon-button" type="button" aria-label="Close setup panel" title="Close">-</button>
+        </div>
+        <p class="field-dialog-copy">Set the core details first. Partner details and advanced drawdown settings can be changed later.</p>
+        <div class="setup-field-grid">
+          <label><span>Plan name</span><input data-field="planName" type="text" /></label>
+          <label><span>Year of birth</span><input data-field="yearOfBirth" type="number" step="1" /></label>
+          <label><span>Retirement age</span><input data-field="retirementAge" type="number" step="1" /></label>
+          <label><span>Total pension pot</span><input data-field="currentPot" type="number" step="1000" /></label>
+          <label><span>Already crystallised</span><input data-field="currentCrystallisedPot" type="number" step="1000" /></label>
+          <label><span>Lump sum allowance used</span><input data-field="lumpSumAllowanceUsed" type="number" step="1000" /></label>
+          <label><span>ISA savings</span><input data-field="personalIsaSavings" type="number" step="1000" /></label>
+          <label><span>Bank savings</span><input data-field="personalBankSavings" type="number" step="1000" /></label>
+          <label><span>Premium Bonds</span><input data-field="personalPremiumBonds" type="number" step="1000" /></label>
+          <label><span>Own state pension</span><input data-field="ownStatePension" type="number" step="1000" /></label>
+          <label><span>Income required</span><input data-field="incomeRequired" type="number" step="1000" /></label>
+          <label><span>Income after year 10</span><input data-field="incomeAfterYear10" type="number" step="1000" /></label>
+          <label><span>Household bills</span><input data-field="billsAnnual" type="number" step="1000" /></label>
+          <label><span>Holidays</span><input data-field="holidaysAnnual" type="number" step="500" /></label>
+          <label><span>Plan years</span><input data-field="planYears" type="number" step="1" /></label>
+        </div>
+        <div class="field-dialog-actions">
+          <button id="apply-basic-setup-button" class="button" type="button">Start plan</button>
         </div>
       </section>
     </div>
