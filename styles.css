@@ -543,6 +543,17 @@ select {
   font-size: 0.92rem;
 }
 
+.setup-dialog {
+  width: min(720px, 100%);
+}
+
+.setup-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
 .field-choice input {
   margin-top: 2px;
   accent-color: var(--accent);
@@ -706,6 +717,10 @@ tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
   }
 
   .field-choice-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-field-grid {
     grid-template-columns: 1fr;
   }
 }
