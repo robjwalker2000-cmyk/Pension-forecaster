@@ -92,6 +92,14 @@ h1 {
   font-size: 0.95rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.version-badge:hover,
+.version-badge:focus-visible {
+  border-color: rgba(15, 118, 110, 0.55);
+  outline: none;
 }
 
 .hero-actions {
