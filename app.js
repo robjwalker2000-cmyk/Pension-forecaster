@@ -21,6 +21,7 @@ const DEFAULT_STATE = {
   currentCrystallisedPot: 0,
   lumpSumAllowanceUsed: 0,
   personalSavings: 0,
+  useSavings: true,
   personalSavingsGrowthRate: 0.03,
   personalIsaSavings: 0,
   personalIsaGrowthRate: 0.03,
@@ -35,6 +36,8 @@ const DEFAULT_STATE = {
   definedBenefitMaxYears: 10,
   definedBenefitGrowthRate: 0.02,
   planYears: 25,
+  planToAge: CURRENT_YEAR + 10 - 1971 + 24,
+  planEndMode: "years",
   limitPlanYears: true,
   scenario: 1,
   growthLow: 0.04,
@@ -74,6 +77,9 @@ const DEFAULT_STATE = {
   ownStatePensionGrowthRate: 0.02,
   applyTaxAllowanceCpi: false,
   taxAllowanceCpiRate: 0.02,
+  taxBandCpiRate: 0,
+  taxBandCpiFrequencyYears: 1,
+  taxBandCpiStartYear: CURRENT_YEAR,
   regularDrawdownEnabled: false,
   taxOptimisationMode: false,
   usePartnerSavingsForTaxOptimisation: true,
@@ -124,12 +130,14 @@ const UK_TAX_RULES = {
 };
 
 const inputs = Array.from(document.querySelectorAll("[data-field]"));
+const LINKED_PLAN_FIELDS = new Set(["planYears", "planToAge"]);
 const growthScenarioFields = Array.from(document.querySelectorAll("[data-growth-scenario]"));
 const summaryGrid = document.getElementById("summary-grid");
 const summaryTemplate = document.getElementById("summary-card-template");
 const projectionHead = document.getElementById("projection-head");
 const projectionBody = document.getElementById("projection-body");
 const definedBenefitFields = document.getElementById("defined-benefit-fields");
+const savingsFields = document.getElementById("savings-fields");
 const partnerDetailFields = document.getElementById("partner-detail-fields");
 const regularDrawdownFields = document.getElementById("regular-drawdown-fields");
 const yearOneTflsFields = document.getElementById("year-one-tfls-fields");
@@ -186,7 +194,7 @@ function loadState() {
   }
 }
 
-function normaliseState(source) {
+function normaliseState(source, changedKey = null) {
   const next = { ...source };
   next.planName = typeof next.planName === "string" ? next.planName : "Pension plan";
   next.currentYear = CURRENT_YEAR;
@@ -209,6 +217,25 @@ function normaliseState(source) {
     next.retirementYear = next.currentYear + 10;
     next.retirementAge = next.retirementYear - next.yearOfBirth;
   }
+
+  if (changedKey === "planToAge") {
+    next.planEndMode = "age";
+  } else if (changedKey === "planYears") {
+    next.planEndMode = "years";
+  } else if (!["age", "years"].includes(next.planEndMode)) {
+    next.planEndMode = Number.isFinite(Number(source.planToAge)) && !Number.isFinite(Number(source.planYears)) ? "age" : "years";
+  }
+
+  const planYearsValue = Math.max(1, Math.round(Number(next.planYears) || DEFAULT_STATE.planYears));
+  const planToAgeValue = Math.max(next.retirementAge, Math.round(Number(next.planToAge) || (next.retirementAge + planYearsValue - 1)));
+  if (next.planEndMode === "age") {
+    next.planToAge = planToAgeValue;
+    next.planYears = Math.max(1, next.planToAge - next.retirementAge + 1);
+  } else {
+    next.planYears = planYearsValue;
+    next.planToAge = next.retirementAge + next.planYears - 1;
+  }
+
   next.currentCrystallisedPot = Math.max(0, Math.min(Number(next.currentCrystallisedPot) || 0, Number(next.currentPot) || 0));
   next.lumpSumAllowanceUsed = Math.max(0, Number(next.lumpSumAllowanceUsed) || 0);
   if (!Number.isFinite(Number(source.personalBankSavings)) && !Number.isFinite(Number(source.personalIsaSavings))) {
@@ -221,6 +248,10 @@ function normaliseState(source) {
     next.personalPremiumBonds = Math.max(0, Number(next.personalPremiumBonds) || 0);
   }
   next.personalSavings = next.personalIsaSavings + next.personalBankSavings + next.personalPremiumBonds;
+  next.useSavings = next.useSavings !== false;
+  next.taxBandCpiRate = Math.max(0, Number(next.taxBandCpiRate) || 0);
+  next.taxBandCpiFrequencyYears = Math.max(1, Math.round(Number(next.taxBandCpiFrequencyYears) || 1));
+  next.taxBandCpiStartYear = Math.round(Number(next.taxBandCpiStartYear) || next.currentYear);
   next.yearOneTflsMode = next.yearOneTflsMode === "defined" ? "defined" : "full";
   next.yearOneTflsAmount = Math.max(0, Number(next.yearOneTflsAmount) || 0);
   return next;
@@ -288,6 +319,7 @@ function applyUiState() {
   granularCrystallisationToggleWrap.hidden = uiState.tableView !== "granular";
   chooseCustomFieldsButton.hidden = uiState.tableView !== "custom";
   definedBenefitFields.hidden = !Boolean(state.definedBenefitEnabled);
+  savingsFields.hidden = state.useSavings === false;
   partnerDetailFields.hidden = state.partnerDetailsEnabled === false;
   regularDrawdownFields.hidden = !Boolean(state.regularDrawdownEnabled);
   yearOneTflsFields.hidden = !Boolean(state.take25PercentYear1);
@@ -316,28 +348,54 @@ function compoundAnnual(base, rate, yearsElapsed, enabled = true) {
   return base * Math.pow(1 + rate / 12, 12 * yearsElapsed);
 }
 
-function estimateUkIncomeTax(totalIncome, allowanceBase = UK_TAX_RULES.personalAllowance) {
+function steppedCpiMultiplier(calendarYear, startYear, frequencyYears, rate) {
+  const annualRate = Math.max(0, Number(rate) || 0);
+  const year = Math.round(Number(calendarYear) || CURRENT_YEAR);
+  const start = Math.round(Number(startYear) || CURRENT_YEAR);
+  const frequency = Math.max(1, Math.round(Number(frequencyYears) || 1));
+  if (annualRate <= 0 || year < start) {
+    return 1;
+  }
+  return Math.pow(1 + annualRate, Math.floor((year - start) / frequency) + 1);
+}
+
+function taxRulesForYear(source, calendarYear) {
+  const multiplier = steppedCpiMultiplier(
+    calendarYear,
+    source.taxBandCpiStartYear,
+    source.taxBandCpiFrequencyYears,
+    source.taxBandCpiRate,
+  );
+  return {
+    ...UK_TAX_RULES,
+    allowanceTaperStarts: UK_TAX_RULES.allowanceTaperStarts * multiplier,
+    basicRateLimit: UK_TAX_RULES.basicRateLimit * multiplier,
+    higherRateLimit: UK_TAX_RULES.higherRateLimit * multiplier,
+  };
+}
+
+function estimateUkIncomeTax(totalIncome, allowanceBase = UK_TAX_RULES.personalAllowance, taxRules = UK_TAX_RULES) {
   const income = Math.max(0, Number(totalIncome) || 0);
-  const allowanceReduction = Math.max(0, (income - UK_TAX_RULES.allowanceTaperStarts) / 2);
+  const allowanceReduction = Math.max(0, (income - taxRules.allowanceTaperStarts) / 2);
   const personalAllowance = Math.max(0, allowanceBase - allowanceReduction);
   const taxableIncome = Math.max(0, income - personalAllowance);
   const personalAllowanceUsed = Math.min(income, personalAllowance);
-  const basicBand = Math.max(0, UK_TAX_RULES.basicRateLimit - personalAllowance);
-  const higherBand = Math.max(0, UK_TAX_RULES.higherRateLimit - UK_TAX_RULES.basicRateLimit);
+  const basicBand = Math.max(0, taxRules.basicRateLimit - personalAllowance);
+  const higherBand = Math.max(0, taxRules.higherRateLimit - taxRules.basicRateLimit);
   const basicTaxable = Math.min(taxableIncome, basicBand);
   const higherTaxable = Math.min(Math.max(0, taxableIncome - basicBand), higherBand);
   const additionalTaxable = Math.max(0, taxableIncome - basicBand - higherBand);
-  const basicRateTax = basicTaxable * UK_TAX_RULES.basicRate;
-  const higherRateTax = higherTaxable * UK_TAX_RULES.higherRate;
-  const additionalRateTax = additionalTaxable * UK_TAX_RULES.additionalRate;
+  const basicRateTax = basicTaxable * taxRules.basicRate;
+  const higherRateTax = higherTaxable * taxRules.higherRate;
+  const additionalRateTax = additionalTaxable * taxRules.additionalRate;
   const totalTax = basicRateTax + higherRateTax + additionalRateTax;
   const effectiveTaxRate = income > 0 ? totalTax / income : 0;
   const marginalTaxRate = additionalTaxable > 0
-    ? UK_TAX_RULES.additionalRate
+    ? taxRules.additionalRate
     : higherTaxable > 0
-      ? UK_TAX_RULES.higherRate
+      ? taxRules.higherRate
       : basicTaxable > 0
-        ? UK_TAX_RULES.basicRate
+        ? taxRules.basicRate
         : 0;
   return {
     totalTax,
@@ -355,26 +413,26 @@ function estimateUkIncomeTax(totalIncome, allowanceBase = UK_TAX_RULES.personalA
   };
 }
 
-function netFromTaxableIncome(otherTaxableIncome, taxableWithdrawal) {
+function netFromTaxableIncome(otherTaxableIncome, taxableWithdrawal, allowanceBase = UK_TAX_RULES.personalAllowance, taxRules = UK_TAX_RULES) {
   const grossTaxable = otherTaxableIncome + taxableWithdrawal;
-  const tax = estimateUkIncomeTax(grossTaxable);
+  const tax = estimateUkIncomeTax(grossTaxable, allowanceBase, taxRules);
   return grossTaxable - tax.totalTax - otherTaxableIncome;
 }
 
-function solveTaxableWithdrawal(otherTaxableIncome, targetNetFromPension, allowanceBase = UK_TAX_RULES.personalAllowance) {
+function solveTaxableWithdrawal(otherTaxableIncome, targetNetFromPension, allowanceBase = UK_TAX_RULES.personalAllowance, taxRules = UK_TAX_RULES) {
   if (targetNetFromPension <= 0) {
-    return { taxableWithdrawal: 0, taxBreakdown: estimateUkIncomeTax(otherTaxableIncome, allowanceBase) };
+    return { taxableWithdrawal: 0, taxBreakdown: estimateUkIncomeTax(otherTaxableIncome, allowanceBase, taxRules) };
   }
 
   let low = 0;
   let high = Math.max(targetNetFromPension * 2, 1000);
-  while ((otherTaxableIncome + high - estimateUkIncomeTax(otherTaxableIncome + high, allowanceBase).totalTax - otherTaxableIncome) < targetNetFromPension && high < 1e7) {
+  while ((otherTaxableIncome + high - estimateUkIncomeTax(otherTaxableIncome + high, allowanceBase, taxRules).totalTax - otherTaxableIncome) < targetNetFromPension && high < 1e7) {
     high *= 2;
   }
 
   for (let i = 0; i < 40; i += 1) {
     const mid = (low + high) / 2;
-    if ((otherTaxableIncome + mid - estimateUkIncomeTax(otherTaxableIncome + mid, allowanceBase).totalTax - otherTaxableIncome) >= targetNetFromPension) {
+    if ((otherTaxableIncome + mid - estimateUkIncomeTax(otherTaxableIncome + mid, allowanceBase, taxRules).totalTax - otherTaxableIncome) >= targetNetFromPension) {
       high = mid;
     } else {
       low = mid;
@@ -382,36 +440,36 @@ function solveTaxableWithdrawal(otherTaxableIncome, targetNetFromPension, allowa
   }
 
   const taxableWithdrawal = high;
-  return { taxableWithdrawal, taxBreakdown: estimateUkIncomeTax(otherTaxableIncome + taxableWithdrawal, allowanceBase) };
+  return { taxableWithdrawal, taxBreakdown: estimateUkIncomeTax(otherTaxableIncome + taxableWithdrawal, allowanceBase, taxRules) };
 }
 
-function personalSavingsAllowanceForIncome(taxableIncomeWithInterest) {
-  if (taxableIncomeWithInterest > UK_TAX_RULES.higherRateLimit) {
+function personalSavingsAllowanceForIncome(taxableIncomeWithInterest, taxRules = UK_TAX_RULES) {
+  if (taxableIncomeWithInterest > taxRules.higherRateLimit) {
     return 0;
   }
-  if (taxableIncomeWithInterest > UK_TAX_RULES.basicRateLimit) {
-    return UK_TAX_RULES.personalSavingsAllowanceHigher;
+  if (taxableIncomeWithInterest > taxRules.basicRateLimit) {
+    return taxRules.personalSavingsAllowanceHigher;
   }
-  return UK_TAX_RULES.personalSavingsAllowanceBasic;
+  return taxRules.personalSavingsAllowanceBasic;
 }
 
-function estimateBankInterestTax(baseTaxableIncome, bankInterest, allowanceBase = UK_TAX_RULES.personalAllowance) {
+function estimateBankInterestTax(baseTaxableIncome, bankInterest, allowanceBase = UK_TAX_RULES.personalAllowance, taxRules = UK_TAX_RULES) {
   const interest = Math.max(0, Number(bankInterest) || 0);
   if (interest <= 0) {
     return {
       bankInterestGross: 0,
       savingsIncomeForPsa: Math.max(0, baseTaxableIncome),
-      personalSavingsAllowance: personalSavingsAllowanceForIncome(baseTaxableIncome),
+      personalSavingsAllowance: personalSavingsAllowanceForIncome(baseTaxableIncome, taxRules),
       bankInterestTaxable: 0,
       bankInterestTax: 0,
     };
   }
 
   const incomeWithInterest = Math.max(0, baseTaxableIncome + interest);
-  const personalSavingsAllowance = personalSavingsAllowanceForIncome(incomeWithInterest);
+  const personalSavingsAllowance = personalSavingsAllowanceForIncome(incomeWithInterest, taxRules);
   const taxableInterest = Math.max(0, interest - personalSavingsAllowance);
-  const baseTax = estimateUkIncomeTax(baseTaxableIncome, allowanceBase).totalTax;
-  const totalTax = estimateUkIncomeTax(baseTaxableIncome + taxableInterest, allowanceBase).totalTax;
+  const baseTax = estimateUkIncomeTax(baseTaxableIncome, allowanceBase, taxRules).totalTax;
+  const totalTax = estimateUkIncomeTax(baseTaxableIncome + taxableInterest, allowanceBase, taxRules).totalTax;
 
   return {
     bankInterestGross: interest,
@@ -454,19 +512,19 @@ function amortisingWithdrawal(balance, annualGrowthRate, remainingYears) {
   return (amount * rate * growthFactor) / (growthFactor - 1);
 }
 
-function netFromAdditionalTaxableWithdrawal(existingTaxableIncome, taxableWithdrawal, allowanceBase) {
-  const baseTax = estimateUkIncomeTax(existingTaxableIncome, allowanceBase).totalTax;
-  const totalTax = estimateUkIncomeTax(existingTaxableIncome + taxableWithdrawal, allowanceBase).totalTax;
+function netFromAdditionalTaxableWithdrawal(existingTaxableIncome, taxableWithdrawal, allowanceBase, taxRules = UK_TAX_RULES) {
+  const baseTax = estimateUkIncomeTax(existingTaxableIncome, allowanceBase, taxRules).totalTax;
+  const totalTax = estimateUkIncomeTax(existingTaxableIncome + taxableWithdrawal, allowanceBase, taxRules).totalTax;
   return taxableWithdrawal - Math.max(0, totalTax - baseTax);
 }
 
-function solveAdditionalTaxableWithdrawal(existingTaxableIncome, targetNet, allowanceBase, maxWithdrawal = 1e7) {
+function solveAdditionalTaxableWithdrawal(existingTaxableIncome, targetNet, allowanceBase, maxWithdrawal = 1e7, taxRules = UK_TAX_RULES) {
   if (targetNet <= 0 || maxWithdrawal <= 0) {
     return 0;
   }
 
   const cappedMaxWithdrawal = Math.max(0, maxWithdrawal);
-  const maxNet = netFromAdditionalTaxableWithdrawal(existingTaxableIncome, cappedMaxWithdrawal, allowanceBase);
+  const maxNet = netFromAdditionalTaxableWithdrawal(existingTaxableIncome, cappedMaxWithdrawal, allowanceBase, taxRules);
   if (maxNet <= targetNet) {
     return cappedMaxWithdrawal;
   }
@@ -475,7 +533,7 @@ function solveAdditionalTaxableWithdrawal(existingTaxableIncome, targetNet, allo
   let high = cappedMaxWithdrawal;
   for (let i = 0; i < 40; i += 1) {
     const mid = (low + high) / 2;
-    if (netFromAdditionalTaxableWithdrawal(existingTaxableIncome, mid, allowanceBase) >= targetNet) {
+    if (netFromAdditionalTaxableWithdrawal(existingTaxableIncome, mid, allowanceBase, taxRules) >= targetNet) {
       high = mid;
     } else {
       low = mid;
@@ -484,9 +542,9 @@ function solveAdditionalTaxableWithdrawal(existingTaxableIncome, targetNet, allo
   return high;
 }
 
-function estimateTotalTaxWithBankInterest(taxableIncome, bankInterest, allowanceBase) {
-  const taxBreakdown = estimateUkIncomeTax(taxableIncome, allowanceBase);
-  const bankInterestTaxBreakdown = estimateBankInterestTax(taxableIncome, bankInterest, allowanceBase);
+function estimateTotalTaxWithBankInterest(taxableIncome, bankInterest, allowanceBase, taxRules = UK_TAX_RULES) {
+  const taxBreakdown = estimateUkIncomeTax(taxableIncome, allowanceBase, taxRules);
+  const bankInterestTaxBreakdown = estimateBankInterestTax(taxableIncome, bankInterest, allowanceBase, taxRules);
   return {
     taxBreakdown,
     bankInterestTaxBreakdown,
@@ -494,13 +552,13 @@ function estimateTotalTaxWithBankInterest(taxableIncome, bankInterest, allowance
   };
 }
 
-function netFromAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome, bankInterest, taxableWithdrawal, allowanceBase) {
-  const currentTax = estimateTotalTaxWithBankInterest(existingTaxableIncome, bankInterest, allowanceBase).estimatedTax;
-  const nextTax = estimateTotalTaxWithBankInterest(existingTaxableIncome + taxableWithdrawal, bankInterest, allowanceBase).estimatedTax;
+function netFromAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome, bankInterest, taxableWithdrawal, allowanceBase, taxRules = UK_TAX_RULES) {
+  const currentTax = estimateTotalTaxWithBankInterest(existingTaxableIncome, bankInterest, allowanceBase, taxRules).estimatedTax;
+  const nextTax = estimateTotalTaxWithBankInterest(existingTaxableIncome + taxableWithdrawal, bankInterest, allowanceBase, taxRules).estimatedTax;
   return taxableWithdrawal - Math.max(0, nextTax - currentTax);
 }
 
-function solveAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome, bankInterest, targetNet, allowanceBase, maxWithdrawal = 1e7) {
+function solveAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome, bankInterest, targetNet, allowanceBase, maxWithdrawal = 1e7, taxRules = UK_TAX_RULES) {
   if (targetNet <= 0 || maxWithdrawal <= 0) {
     return 0;
   }
@@ -511,6 +569,7 @@ function solveAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome,
     bankInterest,
     cappedMaxWithdrawal,
     allowanceBase,
+    taxRules,
   );
   if (maxNet <= targetNet) {
     return cappedMaxWithdrawal;
@@ -520,7 +579,7 @@ function solveAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome,
   let high = cappedMaxWithdrawal;
   for (let i = 0; i < 40; i += 1) {
     const mid = (low + high) / 2;
-    if (netFromAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome, bankInterest, mid, allowanceBase) >= targetNet) {
+    if (netFromAdditionalTaxableWithdrawalWithBankInterest(existingTaxableIncome, bankInterest, mid, allowanceBase, taxRules) >= targetNet) {
       high = mid;
     } else {
       low = mid;
@@ -540,6 +599,7 @@ function calculateTaxOptimisedWithdrawal({
   crystallisedPot,
   uncrystallisedPot,
   forceTflsTaxablePairing = false,
+  taxRules = UK_TAX_RULES,
 }) {
   const totalPotAvailable = Math.max(0, crystallisedPot + uncrystallisedPot);
   const taxableCapacity = totalPotAvailable;
@@ -568,7 +628,7 @@ function calculateTaxOptimisedWithdrawal({
   availableCrystallisedPot += plannedTaxFreeCash * 3;
   remainingTaxFreeCashCapacity -= plannedTaxFreeCash;
 
-  const psaProtectedBasicRateLimit = Math.max(0, UK_TAX_RULES.basicRateLimit - myOtherIncome - Math.max(0, expectedBankInterest));
+  const psaProtectedBasicRateLimit = Math.max(0, taxRules.basicRateLimit - myOtherIncome - Math.max(0, expectedBankInterest));
   const taxableFromExistingCrystallised = Math.min(
     remainingGrossIncome,
     psaProtectedBasicRateLimit,
@@ -639,9 +699,16 @@ function calculateProjection(source) {
   const currentUncrystallisedPot = Math.max(0, source.currentPot - source.currentCrystallisedPot);
   const retirementUncrystallisedPot = compoundAnnual(currentUncrystallisedPot, preRetirementGrowthRate, yearsToRetirement, true);
   const retirementCrystallisedPot = compoundAnnual(source.currentCrystallisedPot, preRetirementGrowthRate, yearsToRetirement, true);
-  let personalIsaSavingsAtRetirement = compoundAnnual(source.personalIsaSavings, source.personalIsaGrowthRate, yearsToRetirement, true);
-  const personalBankSavingsAtRetirement = compoundAnnual(source.personalBankSavings, source.personalBankInterestRate, yearsToRetirement, true);
-  const uncappedPersonalPremiumBondsAtRetirement = compoundAnnual(source.personalPremiumBonds, source.personalPremiumBondsGrowthRate, yearsToRetirement, true);
+  const personalSavingsEnabled = source.useSavings !== false;
+  let personalIsaSavingsAtRetirement = personalSavingsEnabled
+    ? compoundAnnual(source.personalIsaSavings, source.personalIsaGrowthRate, yearsToRetirement, true)
+    : 0;
+  const personalBankSavingsAtRetirement = personalSavingsEnabled
+    ? compoundAnnual(source.personalBankSavings, source.personalBankInterestRate, yearsToRetirement, true)
+    : 0;
+  const uncappedPersonalPremiumBondsAtRetirement = personalSavingsEnabled
+    ? compoundAnnual(source.personalPremiumBonds, source.personalPremiumBondsGrowthRate, yearsToRetirement, true)
+    : 0;
   const premiumBondsToIsaBeforeRetirement = Math.max(0, uncappedPersonalPremiumBondsAtRetirement - UK_TAX_RULES.premiumBondsLimit);
   const personalPremiumBondsAtRetirement = Math.min(uncappedPersonalPremiumBondsAtRetirement, UK_TAX_RULES.premiumBondsLimit);
   personalIsaSavingsAtRetirement += premiumBondsToIsaBeforeRetirement;
@@ -726,6 +793,7 @@ function calculateProjection(source) {
     const baseIncomeTotal = partnerWorkIncome + partnerStatePension + partnerWorkPension + myOtherIncome;
     const pensionNeededGross = Math.max(0, totalIncomeRequired - baseIncomeTotal - definedBenefitLumpSum);
     const allowanceBase = compoundAnnual(UK_TAX_RULES.personalAllowance, source.taxAllowanceCpiRate, yearIndex, source.applyTaxAllowanceCpi);
+    const taxRules = taxRulesForYear(source, calendarYear);
     const isaInterestGross = isaSavingsBalance * source.personalIsaGrowthRate;
     const bankInterestGross = bankSavingsBalance * source.personalBankInterestRate;
     const premiumBondsGrowth = premiumBondsBalance * source.personalPremiumBondsGrowthRate;
@@ -746,7 +814,7 @@ function calculateProjection(source) {
       )
       : 0;
     const basicRateMaximisedWithdrawal = source.maximiseBasicRateDrawdown
-      ? Math.max(0, UK_TAX_RULES.basicRateLimit - myOtherIncome - bankInterestGross)
+      ? Math.max(0, taxRules.basicRateLimit - myOtherIncome - bankInterestGross)
       : 0;
     const basicRateMaximisedTaxFreeCash = source.maximiseBasicRateDrawdown
       ? Math.min(
@@ -754,6 +822,9 @@ function calculateProjection(source) {
         basicRateMaximisedWithdrawal / 3,
       )
       : 0;
+    const tflsBy75DrawdownTarget = source.maximiseBasicRateDrawdown && source.forceTflsTaxablePairing
+      ? Math.min(tflsBy75Target, basicRateMaximisedTaxFreeCash)
+      : tflsBy75Target;
     const partnerSavingsAvailableForTaxOptimisation = partnerDetailsEnabled && source.usePartnerSavingsForTaxOptimisation
       ? (yearIndex <= 15 ? partnerSavingsBalance * 0.05 : partnerSavingsBalance)
       : 0;
@@ -775,12 +846,13 @@ function calculateProjection(source) {
         myOtherIncome,
         expectedBankInterest: bankInterestGross,
         taxFreeCashCapacity: Math.max(0, taxFreeCashCapacity - forcedTaxFreeCash),
-        minimumTaxFreeCash: tflsBy75Target,
+        minimumTaxFreeCash: tflsBy75DrawdownTarget,
         earlySavingsAvailable: plannedPartnerSavingsForTaxOptimisation,
         savingsAvailable: savingsAvailableForTaxOptimisation,
         crystallisedPot: crystallisedPot + (forcedTaxFreeCash * 3),
         uncrystallisedPot: Math.max(0, uncrystallisedPot - forcedTaxFreeCash * 4),
         forceTflsTaxablePairing: source.forceTflsTaxablePairing,
+        taxRules,
       })
       : null;
     const taxFreeCashEnabled = source.taxOptimisationMode || source.regularDrawdownEnabled || source.useTflsBy75 || source.maximiseBasicRateDrawdown || (yearIndex === 1 && source.take25PercentYear1);
@@ -788,9 +860,9 @@ function calculateProjection(source) {
       + (source.taxOptimisationMode
         ? Math.max(taxOptimisedWithdrawal.taxFreeCash, basicRateMaximisedTaxFreeCash)
         : source.regularDrawdownEnabled
-          ? Math.max(regularDrawdown, tflsBy75Target, basicRateMaximisedTaxFreeCash)
+          ? Math.max(regularDrawdown, tflsBy75DrawdownTarget, basicRateMaximisedTaxFreeCash)
           : source.useTflsBy75
-            ? Math.max(tflsBy75Target, basicRateMaximisedTaxFreeCash)
+            ? Math.max(tflsBy75DrawdownTarget, basicRateMaximisedTaxFreeCash)
           : basicRateMaximisedTaxFreeCash);
     const taxFreeCashTaken = taxFreeCashEnabled
       ? Math.min(taxFreeCashCapacity, preferredTaxFreeCash)
@@ -818,7 +890,7 @@ function calculateProjection(source) {
       taxBreakdown,
       bankInterestTaxBreakdown,
       estimatedTax,
-    } = estimateTotalTaxWithBankInterest(myTaxableIncome, bankInterestGross, allowanceBase);
+    } = estimateTotalTaxWithBankInterest(myTaxableIncome, bankInterestGross, allowanceBase, taxRules);
     const householdBills = compoundAnnual(source.billsAnnual, source.cpiRate, yearIndex, source.applyCpiBills);
     const plannedSavingsUse = source.taxOptimisationMode
       ? Math.min(savingsAvailableForTaxOptimisation, taxOptimisedWithdrawal.savingsUsed)
@@ -846,7 +918,7 @@ function calculateProjection(source) {
         taxBreakdown,
         bankInterestTaxBreakdown,
         estimatedTax,
-      } = estimateTotalTaxWithBankInterest(myTaxableIncome, bankInterestGross, allowanceBase));
+      } = estimateTotalTaxWithBankInterest(myTaxableIncome, bankInterestGross, allowanceBase, taxRules));
       incomeCovered = incomeTotal + totalTaxableWithdrawal + sourcedFromSavings;
     };
 
@@ -936,6 +1008,7 @@ function calculateProjection(source) {
         freeCashDeficit,
         allowanceBase,
         remainingCrystallisedCapacity + remainingUncrystallisedCapacity,
+        taxRules,
       );
       const extraCrystallisedNeeded = Math.max(0, taxableWithdrawalTopUp - remainingCrystallisedCapacity);
       extraDesignationForTaxable += Math.min(extraCrystallisedNeeded, remainingUncrystallisedCapacity);
@@ -1024,7 +1097,7 @@ function calculateProjection(source) {
       personalSavingsAllowanceUsed: Math.min(bankInterestTaxBreakdown.bankInterestGross, bankInterestTaxBreakdown.personalSavingsAllowance),
       bankInterestTaxable: bankInterestTaxBreakdown.bankInterestTaxable,
       bankInterestTax: bankInterestTaxBreakdown.bankInterestTax,
-      psaProtectedTaxableWithdrawalLimit: taxOptimisedWithdrawal?.psaProtectedBasicRateLimit ?? Math.max(0, UK_TAX_RULES.basicRateLimit - myOtherIncome - bankInterestGross),
+      psaProtectedTaxableWithdrawalLimit: taxOptimisedWithdrawal?.psaProtectedBasicRateLimit ?? Math.max(0, taxRules.basicRateLimit - myOtherIncome - bankInterestGross),
       partnerSavingsIncludedInOptimisation: partnerDetailsEnabled && source.usePartnerSavingsForTaxOptimisation ? 1 : 0,
       partnerSavingsOptimisationLimit: partnerSavingsAvailableForTaxOptimisation,
       partnerSavingsPlannedUse: plannedPartnerSavingsForTaxOptimisation,
@@ -1165,6 +1238,13 @@ function renderSummary(projection) {
   const totalTaxPaid = projection.rows.reduce((sum, row) => sum + row.estimatedTax, 0);
   const averageTaxPerYear = projection.rows.length > 0 ? totalTaxPaid / projection.rows.length : 0;
   const averageTaxPerMonth = averageTaxPerYear / 12;
+  const pensionDrawdownRows = projection.rows.filter((row) => row.grossPensionWithdrawal > 0.01 || row.taxFreeCash > 0.01);
+  const averageEffectiveTaxRate = pensionDrawdownRows.length > 0
+    ? pensionDrawdownRows.reduce((sum, row) => {
+      const taxableBase = Math.max(0, row.taxableIncomeBeforeAllowance + row.bankInterestTaxable);
+      return sum + (taxableBase > 0 ? row.estimatedTax / taxableBase : 0);
+    }, 0) / pensionDrawdownRows.length
+    : 0;
   const totalPensionTflsTaken = projection.rows.reduce((sum, row) => sum + row.taxFreeCash, 0);
   const totalDefinedBenefitLumpSum = projection.rows.reduce((sum, row) => sum + row.definedBenefitLumpSum, 0);
   const totalTflsTaken = totalPensionTflsTaken + totalDefinedBenefitLumpSum;
@@ -1217,7 +1297,7 @@ function renderSummary(projection) {
     {
       label: "Total tax paid",
       value: formatCurrency(totalTaxPaid),
-      note: `${formatCurrency(averageTaxPerYear)}/Yr - ${formatCurrency(averageTaxPerMonth)}/Mth`,
+      note: `${formatCurrency(averageTaxPerYear)}/Yr - ${formatCurrency(averageTaxPerMonth)}/Mth - avg eff ${PERCENT.format(averageEffectiveTaxRate)}`,
     },
     {
       label: "Lump sum allowance left",
@@ -1588,8 +1668,8 @@ function closeBasicSetup() {
 }
 
 function showVersionChangeDate() {
-  const versionText = "Version 3.0";
-  versionBadge.textContent = "Changed 2026-05-25 20:07 BST";
+  const versionText = "Version 3.1";
+  versionBadge.textContent = "Changed 2026-05-29 17:03 BST";
   versionBadge.setAttribute("aria-label", versionBadge.textContent);
   clearTimeout(versionBadgeTimeout);
   versionBadgeTimeout = setTimeout(() => {
@@ -1613,7 +1693,7 @@ function getColumnCalculationNote(key, label) {
     definedBenefitIncome: 'Inflexible defined benefit income, starting in the selected year, growing annually, and included in your taxable income before flexible drawdown is optimised.',
     definedBenefitLumpSum: 'Tax-free defined benefit lump sum in the DB start year. It reduces remaining lump sum allowance before flexible TFLS is calculated.',
     taxFreeCash: 'Tax Free Lump Sum taken from available uncrystallised pension funds and tested against remaining lump sum allowance.',
-    tflsBy75Target: 'Minimum annual TFLS target used when the Use TFLS by 75 option is on, based on remaining lump sum allowance and years left to age 75.',
+    tflsBy75Target: 'Minimum annual TFLS target used when the Use TFLS by 75 option is on, based on remaining lump sum allowance and years left to age 75. When maximise drawdown and forced TFLS pairing are both on, the actual TFLS taken is capped to the basic-rate paired capacity.',
     sourcedFromSavings: 'Savings used in tax optimisation mode to avoid or reduce taxable pension drawdown. Partner savings are smoothed across the remaining plan and capped in early years.',
     bankSavingsUsed: 'Savings withdrawal sourced from taxable bank savings before premium bonds, ISA, and partner savings.',
     premiumBondsUsed: 'Savings withdrawal sourced from Premium Bonds after bank savings and before ISA.',
@@ -2068,6 +2148,14 @@ function updateField(event) {
     return;
   }
 
+  if (event.type === "input" && LINKED_PLAN_FIELDS.has(key)) {
+    const value = parseInputValue(input, state[key]);
+    if (Number.isFinite(Number(value))) {
+      state[key] = value;
+    }
+    return;
+  }
+
   if (input.type === "checkbox") {
     state[key] = input.checked;
   } else if (input.type === "number") {
@@ -2077,7 +2165,7 @@ function updateField(event) {
   }
 
 
-  state = normaliseState(state);
+  state = normaliseState(state, key);
   render();
 }
 
@@ -2180,6 +2268,8 @@ function buildPlanExportAssumptions(projection) {
       retirementYear: state.retirementYear,
       retirementAge: state.retirementAge,
       planYears: state.planYears,
+      planToAge: state.planToAge,
+      planEndMode: state.planEndMode,
       limitPlanYears: state.limitPlanYears,
       planEndYear: projection.planEndYear,
       planEndAge: projection.planEndAge,
@@ -2202,6 +2292,9 @@ function buildPlanExportAssumptions(projection) {
       applyCpiHolidays: state.applyCpiHolidays,
       applyTaxAllowanceCpi: state.applyTaxAllowanceCpi,
       taxAllowanceCpiRate: state.taxAllowanceCpiRate,
+      taxBandCpiRate: state.taxBandCpiRate,
+      taxBandCpiFrequencyYears: state.taxBandCpiFrequencyYears,
+      taxBandCpiStartYear: state.taxBandCpiStartYear,
     },
     incomeNeeds: {
       incomeRequired: state.incomeRequired,
@@ -2245,6 +2338,7 @@ function buildPlanExportAssumptions(projection) {
       definedBenefitGrowthRate: state.definedBenefitGrowthRate,
     },
     personalSavings: {
+      useSavings: state.useSavings,
       personalSavings: state.personalSavings,
       personalSavingsGrowthRate: state.personalSavingsGrowthRate,
       personalIsaSavings: state.personalIsaSavings,
@@ -2463,6 +2557,7 @@ function exportFormulaWorkbookToExcel() {
     ["Current year", state.currentYear],
     ["Retirement year", state.retirementYear],
     ["Retirement age", state.retirementAge],
+    ["Plan to age", state.planToAge],
     ["Partner details enabled", state.partnerDetailsEnabled !== false ? 1 : 0],
     ["Partner birth year", state.partnerBirthYear],
     ["Income required", state.incomeRequired],
@@ -2489,6 +2584,9 @@ function exportFormulaWorkbookToExcel() {
     ["State/work pension CPI", state.statePensionCpiRate],
     ["Apply CPI to state/work pensions", state.statePensionApplyCpi ? 1 : 0],
     ["Personal allowance", UK_TAX_RULES.personalAllowance],
+    ["Tax bands CPI", state.taxBandCpiRate],
+    ["Tax bands every N years", state.taxBandCpiFrequencyYears],
+    ["Tax bands start year", state.taxBandCpiStartYear],
     ["Basic rate limit", UK_TAX_RULES.basicRateLimit],
     ["Higher rate limit", UK_TAX_RULES.higherRateLimit],
     ["Allowance taper starts", UK_TAX_RULES.allowanceTaperStarts],
@@ -2507,6 +2605,7 @@ function exportFormulaWorkbookToExcel() {
     ["Starting uncrystallised pot", projection.retirementUncrystallisedPot],
     ["Starting crystallised pot", projection.retirementCrystallisedPot],
     ["Starting lump sum allowance", projection.remainingLumpSumAllowanceStart],
+    ["Use savings", state.useSavings ? 1 : 0],
     ["Starting savings", projection.totalSeparateSavingsAtRetirement],
     ["Tax optimisation mode", state.taxOptimisationMode ? 1 : 0],
     ["Use partner savings for tax optimisation", state.usePartnerSavingsForTaxOptimisation ? 1 : 0],
@@ -2526,20 +2625,25 @@ function exportFormulaWorkbookToExcel() {
     const previousRow = rowIndex > 0 ? rowNumber - 1 : null;
     const targetGross = `MAX(0,${cell("totalIncomeRequired", rowNumber)}-SUM(${cell("partnerIncome", rowNumber)}:${cell("definedBenefitLumpSum", rowNumber)}))`;
     const taxableIncome = `${cell("ownStatePension", rowNumber)}+${cell("definedBenefitIncome", rowNumber)}+${cell("grossPensionWithdrawal", rowNumber)}`;
-    const taxFormula = `LET(myTax,${taxableIncome},pa,MAX(0,${assumptionRef["Personal allowance"]}-MAX(0,(myTax-${assumptionRef["Allowance taper starts"]})/2)),taxable,MAX(0,myTax-pa),basicBand,MAX(0,${assumptionRef["Basic rate limit"]}-pa),higherBand,${assumptionRef["Higher rate limit"]}-${assumptionRef["Basic rate limit"]},MIN(taxable,basicBand)*${assumptionRef["Basic rate"]}+MIN(MAX(0,taxable-basicBand),higherBand)*${assumptionRef["Higher rate"]}+MAX(0,taxable-basicBand-higherBand)*${assumptionRef["Additional rate"]})`;
+    const taxBandStepMultiplier = `IF(${cell("calendarYear", rowNumber)}<${assumptionRef["Tax bands start year"]},1,POWER(1+${assumptionRef["Tax bands CPI"]},QUOTIENT(${cell("calendarYear", rowNumber)}-${assumptionRef["Tax bands start year"]},${assumptionRef["Tax bands every N years"]})+1))`;
+    const basicRateLimitForYear = `(${assumptionRef["Basic rate limit"]}*${taxBandStepMultiplier})`;
+    const higherRateLimitForYear = `(${assumptionRef["Higher rate limit"]}*${taxBandStepMultiplier})`;
+    const allowanceTaperStartsForYear = `(${assumptionRef["Allowance taper starts"]}*${taxBandStepMultiplier})`;
+    const taxFormula = `LET(myTax,${taxableIncome},basicLimit,${basicRateLimitForYear},higherLimit,${higherRateLimitForYear},taperStart,${allowanceTaperStartsForYear},pa,MAX(0,${assumptionRef["Personal allowance"]}-MAX(0,(myTax-taperStart)/2)),taxable,MAX(0,myTax-pa),basicBand,MAX(0,basicLimit-pa),higherBand,higherLimit-basicLimit,MIN(taxable,basicBand)*${assumptionRef["Basic rate"]}+MIN(MAX(0,taxable-basicBand),higherBand)*${assumptionRef["Higher rate"]}+MAX(0,taxable-basicBand-higherBand)*${assumptionRef["Additional rate"]})`;
     const priorPot = previousRow ? cell("totalPotAfterGrowth", previousRow) : `${assumptionRef["Starting uncrystallised pot"]}+${assumptionRef["Starting crystallised pot"]}`;
     const priorLsa = previousRow ? cell("remainingLumpSumAllowance", previousRow) : assumptionRef["Starting lump sum allowance"];
     const priorSavings = previousRow ? cell("savingsLeft", previousRow) : assumptionRef["Starting savings"];
     const lsaAfterDbLump = `MAX(0,${priorLsa}-${cell("definedBenefitLumpSum", rowNumber)})`;
-    const basicRateWithdrawalLimit = `MAX(0,${assumptionRef["Basic rate limit"]}-${cell("ownStatePension", rowNumber)}-${cell("definedBenefitIncome", rowNumber)})`;
+    const basicRateWithdrawalLimit = `MAX(0,${basicRateLimitForYear}-${cell("ownStatePension", rowNumber)}-${cell("definedBenefitIncome", rowNumber)})`;
     const pairedTaxableWithdrawal = `MIN(${targetGross}*0.75,${basicRateWithdrawalLimit},${cell("openingPot", rowNumber)}*0.75,(${lsaAfterDbLump})*3)`;
     const pairedTfls = `(${pairedTaxableWithdrawal})/3`;
     const standaloneTfls = `MIN(MAX(0,(${lsaAfterDbLump})-(${pairedTfls})),MAX(0,${cell("openingPot", rowNumber)}-(${pairedTaxableWithdrawal})-(${pairedTfls}))*0.25,MAX(0,${targetGross}-(${pairedTaxableWithdrawal})-(${pairedTfls})))`;
     const tflsBy75Formula = `IF(AND(${assumptionRef["Use TFLS by 75"]}=1,${cell("age", rowNumber)}<=75),MIN(${lsaAfterDbLump},${cell("openingPot", rowNumber)}*0.25,(${lsaAfterDbLump})/MAX(1,75-${cell("age", rowNumber)}+1)),0)`;
     const maximisedDrawdownTfls = `IF(${assumptionRef["Maximise drawdown to basic rate"]}=1,MIN(${lsaAfterDbLump},${cell("openingPot", rowNumber)}*0.25,(${basicRateWithdrawalLimit})/3),0)`;
-    const taxOptimisedTfls = `MAX(${tflsBy75Formula},(${pairedTfls})+(${standaloneTfls}))`;
+    const drawdownSafeTflsBy75Formula = `IF(AND(${assumptionRef["Maximise drawdown to basic rate"]}=1,${assumptionRef["Force TFLS 25/75 pairing"]}=1),MIN(${tflsBy75Formula},${maximisedDrawdownTfls}),${tflsBy75Formula})`;
+    const taxOptimisedTfls = `MAX(${drawdownSafeTflsBy75Formula},(${pairedTfls})+(${standaloneTfls}))`;
     const yearOneTfls = `IF(${assumptionRef["Year 1 TFLS defined amount mode"]}=1,MIN(${assumptionRef["Year 1 TFLS amount"]},${lsaAfterDbLump},${cell("openingPot", rowNumber)}*0.25),MIN(${lsaAfterDbLump},${cell("openingPot", rowNumber)}*0.25))`;
-    const standardTfls = `MAX(${tflsBy75Formula},IF(AND(${assumptionRef["Year 1 TFLS enabled"]}=1,${cell("yearIndex", rowNumber)}=1),${yearOneTfls},IF(AND(${assumptionRef["Use regular drawdown"]}=1,${cell("yearIndex", rowNumber)}<=${assumptionRef["Regular drawdown years"]}),MIN(${lsaAfterDbLump},${assumptionRef["Regular drawdown"]},${cell("openingPot", rowNumber)}*0.25),0)))`;
+    const standardTfls = `MAX(${drawdownSafeTflsBy75Formula},IF(AND(${assumptionRef["Year 1 TFLS enabled"]}=1,${cell("yearIndex", rowNumber)}=1),${yearOneTfls},IF(AND(${assumptionRef["Use regular drawdown"]}=1,${cell("yearIndex", rowNumber)}<=${assumptionRef["Regular drawdown years"]}),MIN(${lsaAfterDbLump},${assumptionRef["Regular drawdown"]},${cell("openingPot", rowNumber)}*0.25),0)))`;
     const formulas = {
       yearIndex: rowIndex === 0 ? "=1" : `=${cell("yearIndex", previousRow)}+1`,
       calendarYear: rowIndex === 0 ? `=${assumptionRef["Retirement year"]}` : `=${cell("calendarYear", previousRow)}+1`,
