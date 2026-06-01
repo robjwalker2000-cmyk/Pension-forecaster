@@ -211,6 +211,19 @@ h1 {
   gap: 12px;
 }
 
+.field-pair {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.field-pair label {
+  gap: 4px;
+  height: 100%;
+}
+
 .optional-field-group {
   grid-column: 1 / -1;
   display: grid;
@@ -720,6 +733,7 @@ tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
   }
 
   .field-grid,
+  .field-pair,
   .summary-grid {
     grid-template-columns: 1fr;
   }
