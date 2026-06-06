@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pension Forecaster</title>
-    <link rel="stylesheet" href="./styles.css?v=20260521b" />
+    <link rel="stylesheet" href="./styles.css?v=20260606n" />
   </head>
   <body>
     <div class="page-shell">
@@ -13,7 +13,49 @@
           <p class="eyebrow">Pension projection tool</p>
           <div class="title-row">
             <h1>Pension Forecaster</h1>
-            <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.1</button>
+            <div class="version-badge-group">
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.3</button>
+              <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme">✦</button>
+              <div id="theme-panel" class="theme-panel" hidden>
+                <p class="theme-panel-title">Theme</p>
+                <div class="theme-chips">
+                  <button class="theme-chip" data-theme="original" type="button">Classic</button>
+                  <button class="theme-chip" data-theme="dark" type="button">Dark</button>
+                  <button class="theme-chip" data-theme="metallic" type="button">Metal</button>
+                  <button class="theme-chip" data-theme="custom" type="button">Custom</button>
+                </div>
+                <div id="theme-custom-sliders" class="theme-custom-sliders" hidden>
+                  <label class="theme-slider-label">
+                    <span>Background hue</span>
+                    <div class="theme-slider-row">
+                      <input id="bg-hue-slider" class="theme-slider" type="range" min="0" max="360" value="175" />
+                      <span id="bg-hue-swatch" class="theme-swatch"></span>
+                    </div>
+                  </label>
+                  <label class="theme-slider-label">
+                    <span>Tile hue</span>
+                    <div class="theme-slider-row">
+                      <input id="tile-hue-slider" class="theme-slider" type="range" min="0" max="360" value="220" />
+                      <span id="tile-hue-swatch" class="theme-swatch"></span>
+                    </div>
+                  </label>
+                  <label class="theme-slider-label">
+                    <span>Canvas colour</span>
+                    <div class="theme-slider-row">
+                      <input id="canvas-hue-slider" class="theme-slider canvas-hue-slider" type="range" min="0" max="360" value="220" />
+                      <span id="canvas-hue-swatch" class="theme-swatch"></span>
+                    </div>
+                  </label>
+                  <label class="theme-slider-label">
+                    <span>Text colour</span>
+                    <div class="theme-slider-row">
+                      <input id="text-hue-slider" class="theme-slider text-hue-slider" type="range" min="0" max="360" value="220" />
+                      <span id="text-hue-swatch" class="theme-swatch"></span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
           </div>
           <p class="hero-copy">
             A browser-based version of your spreadsheet with live updates, personal
@@ -24,7 +66,7 @@
           <label class="button secondary" for="import-file">Import plan</label>
           <input id="import-file" type="file" accept=".csv,.json" hidden />
           <button id="toggle-panel-button" class="button secondary" type="button">Hide controls</button>
-          <select id="table-view-select" class="button secondary table-view-select" aria-label="Table view"><option value="summarised">Summarised</option><option value="detailed">Detailed</option><option value="granular">Granular</option><option value="custom">Custom</option></select>
+          <select id="table-view-select" class="button secondary table-view-select" aria-label="Table view"><option value="summarised">Summary</option><option value="detailed">Detailed</option><option value="granular">Granular</option><option value="custom">Custom</option></select>
           <button id="choose-custom-fields-button" class="button secondary" type="button" hidden>Choose fields</button>
           <label id="granular-tax-toggle-wrap" class="toggle inline-toggle" hidden><span>Show tax fields</span><input id="granular-tax-toggle" type="checkbox" /></label>
           <label id="granular-income-toggle-wrap" class="toggle inline-toggle" hidden><span>Show income details</span><input id="granular-income-toggle" type="checkbox" /></label>
@@ -34,6 +76,7 @@
           <button id="export-formula-button" class="button secondary formula-export-button" type="button">Export Excel formulas</button>
           <button id="export-pdf-button" class="button secondary" type="button">Export PDF</button>
           <button id="export-plan-button" class="button secondary" type="button">Export plan</button>
+          <button id="share-link-button" class="button secondary" type="button">Share link</button>
           <button id="reset-button" class="button" type="button">Reset defaults</button>
         </div>
       </header>
@@ -47,10 +90,10 @@
               <label><span>Current year</span><input data-field="currentYear" type="number" step="1" readonly /></label>
               <label><span>Current age</span><input data-field="currentAge" type="number" step="1" readonly /></label>
               <label><span>Year of birth</span><input data-field="yearOfBirth" type="number" step="1" /></label>
-              <label><span>Retirement age</span><input data-field="retirementAge" type="number" step="1" /></label>
+              <label class="income-slider-field"><span>Retirement age</span><input data-field="retirementAge" type="number" step="1" /><button class="income-popup-btn" type="button" data-for="retirementAge" aria-label="Quick slider for retirement age">↕</button></label>
               <label><span>Retirement year</span><input data-field="retirementYear" type="number" step="1" readonly /></label>
-              <label><span>Plan years</span><input data-field="planYears" type="number" step="1" /></label>
-              <label><span>Plan to age</span><input data-field="planToAge" type="number" step="1" /></label>
+              <label class="income-slider-field"><span>Plan years</span><input data-field="planYears" type="number" step="1" /><button class="income-popup-btn" type="button" data-for="planYears" aria-label="Quick slider for plan years">↕</button></label>
+              <label class="income-slider-field"><span>Plan to age</span><input data-field="planToAge" type="number" step="1" /><button class="income-popup-btn" type="button" data-for="planToAge" aria-label="Quick slider for plan to age">↕</button></label>
               <label class="toggle"><span>Limit plan years</span><input data-field="limitPlanYears" type="checkbox" /></label>
               <label class="toggle"><span>Use defined benefits</span><input data-field="definedBenefitEnabled" type="checkbox" /></label>
               <div id="defined-benefit-fields" class="optional-field-group" hidden>
@@ -92,17 +135,18 @@
                 <label data-growth-scenario="3"><span>High post-retirement</span><input data-field="postRetirementGrowthHigh" data-format="percent-1" type="number" step="0.1" /></label>
               </div>
               <label class="toggle"><span>Apply pot growth</span><input data-field="applyPotGrowth" type="checkbox" /></label>
+              <label class="toggle"><span>Taper growth to retirement</span><input data-field="taperPreRetirementGrowth" type="checkbox" /></label>
             </div>
           </section>
 
           <section class="panel">
             <h2>Spending</h2>
             <div class="field-grid">
-              <label><span>Income required</span><input data-field="incomeRequired" type="number" step="1000" /></label>
-              <label><span>Income after year 10</span><input data-field="incomeAfterYear10" type="number" step="1000" /></label>
-              <label><span>Household bills</span><input data-field="billsAnnual" type="number" step="1000" /></label>
-              <label><span>Holidays</span><input data-field="holidaysAnnual" type="number" step="500" /></label>
-              <label><span>Car cost</span><input data-field="carCost" type="number" step="1000" /></label>
+              <label class="income-slider-field"><span>Income required</span><input data-field="incomeRequired" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="incomeRequired" aria-label="Quick slider for income required">↕</button></label>
+              <label class="income-slider-field"><span>Income after year 10</span><input data-field="incomeAfterYear10" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="incomeAfterYear10" aria-label="Quick slider for income after year 10">↕</button></label>
+              <label class="income-slider-field"><span>Household bills</span><input data-field="billsAnnual" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="billsAnnual" aria-label="Quick slider for bills">↕</button></label>
+              <label class="income-slider-field"><span>Holidays</span><input data-field="holidaysAnnual" type="number" step="500" /><button class="income-popup-btn" type="button" data-for="holidaysAnnual" aria-label="Quick slider for holidays">↕</button></label>
+              <label class="income-slider-field"><span>Car cost</span><input data-field="carCost" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="carCost" aria-label="Quick slider for car cost">↕</button></label>
               <label><span>Car every N years</span><input data-field="carFrequencyYears" type="number" step="1" min="1" /></label>
               <label><span>First car year</span><input data-field="carStartYear" type="number" step="1" min="1" /></label>
               <label class="toggle"><span>Apply CPI to income</span><input data-field="applyCpiIncome" type="checkbox" /></label>
@@ -222,6 +266,21 @@
             <p class="empty-chart-message" id="chart-empty-message" hidden>No charts selected.</p>
           </section>
 
+          <section class="panel chart-panel">
+            <div class="panel-heading">
+              <h2>Spending Breakdown</h2>
+              <div class="chart-heading-actions">
+                <p id="spending-chart-caption"></p>
+                <label class="toggle inline-toggle"><span>Free cash only</span><input id="spending-chart-free-toggle" type="checkbox" /></label>
+                <label class="toggle inline-toggle"><span>Monthly</span><input id="spending-chart-monthly-toggle" type="checkbox" /></label>
+                <label class="toggle inline-toggle"><span>Today's money</span><input id="spending-chart-real-toggle" type="checkbox" /></label>
+              </div>
+            </div>
+            <div class="chart-frame" id="spending-chart-wrap">
+              <canvas id="spending-chart" width="900" height="280"></canvas>
+            </div>
+          </section>
+
           <section class="panel table-panel">
             <div class="panel-heading">
               <div class="table-title-actions">
@@ -305,6 +364,29 @@
       </section>
     </div>
 
-    <script src="./app.js?v=20260521b"></script>
+    <div id="share-dialog" class="field-dialog-backdrop" hidden>
+      <section class="field-dialog share-dialog-panel" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title">
+        <div class="field-dialog-heading">
+          <h2 id="share-dialog-title">Share plan link</h2>
+          <button id="close-share-dialog-button" class="icon-button" type="button" aria-label="Close" title="Close">-</button>
+        </div>
+        <p class="field-dialog-copy">The link below encodes your entire plan. Open it in any browser with this file to restore the plan instantly.</p>
+        <div class="share-link-row">
+          <input id="share-link-input" class="share-link-input" type="text" readonly aria-label="Share URL" />
+          <button id="copy-share-link-button" class="button" type="button">Copy link</button>
+        </div>
+        <p id="share-copy-confirm" class="share-copy-confirm" hidden>✓ Copied to clipboard</p>
+      </section>
+    </div>
+
+    <div id="income-vslider-popup" class="income-vslider-popup" hidden>
+      <p class="income-vslider-label" id="income-vslider-label">Income</p>
+      <span class="income-vslider-cap">£100k</span>
+      <input id="income-vslider-input" class="income-vslider-input" type="range" min="0" max="100000" step="1000" />
+      <span class="income-vslider-cap">£0</span>
+      <p class="income-vslider-value" id="income-vslider-value">£0</p>
+    </div>
+
+    <script src="./app.js?v=20260606n"></script>
   </body>
 </html>

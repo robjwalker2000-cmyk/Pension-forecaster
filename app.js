@@ -47,6 +47,7 @@ const DEFAULT_STATE = {
   postRetirementGrowthMid: 0.06,
   postRetirementGrowthHigh: 0.04,
   applyPotGrowth: true,
+  taperPreRetirementGrowth: false,
   take25PercentYear1: false,
   yearOneTflsMode: "full",
   yearOneTflsAmount: 0,
@@ -177,11 +178,42 @@ const applyBasicSetupButton = document.getElementById("apply-basic-setup-button"
 const showPotChartToggle = document.getElementById("show-pot-chart-toggle");
 const showIncomeChartToggle = document.getElementById("show-income-chart-toggle");
 const incomeChartModeSelect = document.getElementById("income-chart-mode-select");
+const spendingChartCanvas = document.getElementById("spending-chart");
+const spendingChartRealToggle = document.getElementById("spending-chart-real-toggle");
+const spendingChartMonthlyToggle = document.getElementById("spending-chart-monthly-toggle");
+const spendingChartFreeToggle = document.getElementById("spending-chart-free-toggle");
+const spendingChartCaption = document.getElementById("spending-chart-caption");
 const layout = document.getElementById("layout");
 const tablePanel = document.querySelector(".table-panel");
 
-const shouldOpenBasicSetupOnLoad = !hasSavedState();
-let state = loadState();
+function loadStateFromUrlHash() {
+  try {
+    const hash = window.location.hash;
+    if (!hash.startsWith("#plan=")) return null;
+    const encoded = hash.slice(6);
+    const decoded = JSON.parse(decodeURIComponent(escape(atob(encoded))));
+    if (decoded && typeof decoded === "object") {
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      return normaliseState({ ...DEFAULT_STATE, ...decoded });
+    }
+  } catch {
+    // malformed hash — ignore
+  }
+  return null;
+}
+
+function generateShareUrl() {
+  try {
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
+    return `${window.location.href.split("#")[0]}#plan=${encoded}`;
+  } catch {
+    return window.location.href;
+  }
+}
+
+const urlState = loadStateFromUrlHash();
+const shouldOpenBasicSetupOnLoad = !urlState && !hasSavedState();
+let state = urlState || loadState();
 let uiState = loadUiState();
 let versionBadgeTimeout = null;
 
@@ -274,6 +306,9 @@ function loadUiState() {
       showPotChart: saved.showPotChart !== false,
       showIncomeChart: saved.showIncomeChart !== false,
       incomeChartMode: ["line", "stacked"].includes(saved.incomeChartMode) ? saved.incomeChartMode : "line",
+      spendingChartReal: Boolean(saved.spendingChartReal),
+      spendingChartMonthly: Boolean(saved.spendingChartMonthly),
+      spendingChartFreeOnly: Boolean(saved.spendingChartFreeOnly),
       tableExpanded: Boolean(saved.tableExpanded),
       customTableFields: Array.isArray(saved.customTableFields) ? saved.customTableFields : [],
     };
@@ -288,6 +323,9 @@ function loadUiState() {
       showPotChart: true,
       showIncomeChart: true,
       incomeChartMode: "line",
+      spendingChartReal: false,
+      spendingChartMonthly: false,
+      spendingChartFreeOnly: false,
       tableExpanded: false,
       customTableFields: [],
     };
@@ -309,6 +347,9 @@ function applyUiState() {
   showPotChartToggle.checked = Boolean(uiState.showPotChart);
   showIncomeChartToggle.checked = Boolean(uiState.showIncomeChart);
   incomeChartModeSelect.value = uiState.incomeChartMode;
+  spendingChartRealToggle.checked = Boolean(uiState.spendingChartReal);
+  spendingChartMonthlyToggle.checked = Boolean(uiState.spendingChartMonthly);
+  spendingChartFreeToggle.checked = Boolean(uiState.spendingChartFreeOnly);
   tablePanel.classList.toggle("table-panel-expanded", Boolean(uiState.tableExpanded));
   toggleTableWidthButton.textContent = uiState.tableExpanded ? "-" : "+";
   toggleTableWidthButton.setAttribute("aria-label", uiState.tableExpanded ? "Reduce table width" : "Expand table width");
@@ -346,6 +387,23 @@ function compoundAnnual(base, rate, yearsElapsed, enabled = true) {
     return base;
   }
   return base * Math.pow(1 + rate / 12, 12 * yearsElapsed);
+}
+
+// Grows a pot over yearsToRetirement, linearly tapering the annual rate
+// from preRate (today) down to postRate (at retirement).
+// When disabled falls back to flat compoundAnnual.
+function taperedPreRetirementGrowth(base, preRate, postRate, yearsToRetirement, enabled) {
+  if (!enabled || yearsToRetirement <= 0) {
+    return compoundAnnual(base, preRate, yearsToRetirement, yearsToRetirement > 0);
+  }
+  let value = base;
+  for (let y = 0; y < yearsToRetirement; y++) {
+    // t = 0 in year 1 (use preRate), t = 1 in final year (use postRate)
+    const t = yearsToRetirement === 1 ? 1 : y / (yearsToRetirement - 1);
+    const rate = preRate + (postRate - preRate) * t;
+    value *= Math.pow(1 + rate / 12, 12);
+  }
+  return value;
 }
 
 function steppedCpiMultiplier(calendarYear, startYear, frequencyYears, rate) {
@@ -697,8 +755,17 @@ function calculateProjection(source) {
   const preRetirementGrowthRate = growthRateForScenario(source, "pre");
   const postRetirementGrowthRate = growthRateForScenario(source, "post");
   const currentUncrystallisedPot = Math.max(0, source.currentPot - source.currentCrystallisedPot);
-  const retirementUncrystallisedPot = compoundAnnual(currentUncrystallisedPot, preRetirementGrowthRate, yearsToRetirement, true);
-  const retirementCrystallisedPot = compoundAnnual(source.currentCrystallisedPot, preRetirementGrowthRate, yearsToRetirement, true);
+  const retirementUncrystallisedPot = taperedPreRetirementGrowth(currentUncrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth);
+  const retirementCrystallisedPot = taperedPreRetirementGrowth(source.currentCrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth);
+
+  // Effective equivalent flat rate that produces the same tapered result
+  let effectivePreRetirementGrowthRate = preRetirementGrowthRate;
+  if (source.taperPreRetirementGrowth && yearsToRetirement > 0 && source.currentPot > 0) {
+    const totalStart = source.currentPot;
+    const totalEnd = retirementUncrystallisedPot + retirementCrystallisedPot;
+    // Invert monthly-compounding formula: r = ((end/start)^(1/(12*n)) - 1) * 12
+    effectivePreRetirementGrowthRate = (Math.pow(totalEnd / totalStart, 1 / (12 * yearsToRetirement)) - 1) * 12;
+  }
   const personalSavingsEnabled = source.useSavings !== false;
   let personalIsaSavingsAtRetirement = personalSavingsEnabled
     ? compoundAnnual(source.personalIsaSavings, source.personalIsaGrowthRate, yearsToRetirement, true)
@@ -746,7 +813,8 @@ function calculateProjection(source) {
         ? yearIndex - 1
         : yearIndex - 11;
     const incomeRequired = compoundAnnual(incomeBase, source.cpiRate, incomeCpiYears, source.applyCpiIncome);
-    const holidays = compoundAnnual(source.holidaysAnnual, source.cpiRate, yearIndex, source.applyCpiHolidays);
+    const spendingCpiYears = yearsToRetirement + yearIndex - 1;
+    const holidays = compoundAnnual(source.holidaysAnnual, source.cpiRate, spendingCpiYears, source.applyCpiHolidays);
     const carCost =
       source.carCost > 0
       && yearIndex >= source.carStartYear
@@ -891,7 +959,7 @@ function calculateProjection(source) {
       bankInterestTaxBreakdown,
       estimatedTax,
     } = estimateTotalTaxWithBankInterest(myTaxableIncome, bankInterestGross, allowanceBase, taxRules);
-    const householdBills = compoundAnnual(source.billsAnnual, source.cpiRate, yearIndex, source.applyCpiBills);
+    const householdBills = compoundAnnual(source.billsAnnual, source.cpiRate, spendingCpiYears, source.applyCpiBills);
     const plannedSavingsUse = source.taxOptimisationMode
       ? Math.min(savingsAvailableForTaxOptimisation, taxOptimisedWithdrawal.savingsUsed)
       : 0;
@@ -1179,6 +1247,8 @@ function calculateProjection(source) {
     depletionYear,
     planEndYear: endRow?.calendarYear ?? retirementYear,
     planEndAge: endRow?.age ?? source.retirementAge,
+    taperPreRetirementGrowth: Boolean(source.taperPreRetirementGrowth),
+    effectivePreRetirementGrowthRate,
   };
 }
 
@@ -1268,7 +1338,9 @@ function renderSummary(projection) {
     {
       label: "Pot at retirement",
       value: formatCurrency(projection.totalRetirementPot),
-      note: `${PERCENT.format(projection.preRetirementGrowthRate)} before retirement, ${PERCENT.format(projection.postRetirementGrowthRate)} after retirement`,
+      note: projection.taperPreRetirementGrowth
+        ? `Tapered rate equiv ${PERCENT.format(projection.effectivePreRetirementGrowthRate)} before retirement, ${PERCENT.format(projection.postRetirementGrowthRate)} after`
+        : `${PERCENT.format(projection.preRetirementGrowthRate)} before retirement, ${PERCENT.format(projection.postRetirementGrowthRate)} after retirement`,
     },
     {
       label: "Uncrystallised at retirement",
@@ -1668,8 +1740,8 @@ function closeBasicSetup() {
 }
 
 function showVersionChangeDate() {
-  const versionText = "Version 3.1";
-  versionBadge.textContent = "Changed 2026-05-29 17:03 BST";
+  const versionText = "Version 3.2";
+  versionBadge.textContent = "Changed 2026-06-01 18:58 BST";
   versionBadge.setAttribute("aria-label", versionBadge.textContent);
   clearTimeout(versionBadgeTimeout);
   versionBadgeTimeout = setTimeout(() => {
@@ -1832,10 +1904,211 @@ function splitTableHeader(label) {
   return [words.slice(0, midpoint).join(" "), words.slice(midpoint).join(" ")];
 }
 
+function makeHatchPattern(ctx, color) {
+  const sz = 6;
+  const pc = document.createElement("canvas");
+  pc.width = sz; pc.height = sz;
+  const px = pc.getContext("2d");
+  px.strokeStyle = color;
+  px.lineWidth = 1.5;
+  px.beginPath(); px.moveTo(0, sz); px.lineTo(sz, 0); px.stroke();
+  return ctx.createPattern(pc, "repeat");
+}
+
+function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, freeOnly }) {
+  const cs = getChartStyle();
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || canvas.width;
+  const height = canvas.clientHeight || canvas.height;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const cpiRate = state.cpiRate || 0;
+  const n0 = projection.yearsToRetirement;
+
+  const adjust = (v, yi) => {
+    if (realTerms && cpiRate > 0) v /= Math.pow(1 + cpiRate / 12, 12 * (n0 + yi - 1));
+    return monthly ? v / 12 : v;
+  };
+
+  // Actual cash-flow free cash — matches the table's Free cash column exactly.
+  // excessNet = incomeCovered - estimatedTax - householdBills - holidays
+  // freeCash  = excessNet - carCost
+  const computeFreeCash = (row, yi) =>
+    adjust(row.excessNet - row.carCost, yi);
+
+  const spendKeys = freeOnly ? [] : [
+    { key: "householdBills", label: "Bills",     color: "#3b82f6" },
+    { key: "holidays",       label: "Holidays",  color: "#10b981" },
+    { key: "carCost",        label: "Car",       color: "#f59e0b" },
+  ];
+
+  // Per-row data: split free cash into surplus (positive) and shortfall (negative)
+  const rowData = projection.rows.map((row, i) => {
+    const yi = i + 1;
+    const freeCash = computeFreeCash(row, yi);
+    const surplus   = Math.max(0, freeCash);
+    const shortfall = Math.min(0, freeCash); // ≤ 0
+    const spending  = spendKeys.map(s => ({ ...s, v: Math.max(0, adjust(Number(row[s.key]) || 0, yi)) }));
+    const tax       = freeOnly ? 0 : Math.max(0, adjust(row.estimatedTax, yi));
+    const stackTop  = spending.reduce((s, d) => s + d.v, 0) + surplus + tax;
+    return { spending, tax, surplus, shortfall, stackTop };
+  });
+
+  const axisStep = monthly ? 1000 : 10000;
+  const minShortfall = Math.min(0, ...rowData.map(d => d.shortfall));
+  const maxStack     = Math.max(axisStep, ...rowData.map(d => d.stackTop));
+  const minValue = Math.min(0, Math.floor(minShortfall / axisStep) * axisStep);
+  const maxValue = Math.ceil(maxStack / axisStep) * axisStep;
+  const range    = maxValue - minValue;
+  const hasShortfall = minValue < 0;
+
+  const pad = { top: 56, right: 22, bottom: 56, left: 70 };
+  const plotWidth  = width  - pad.left - pad.right;
+  const plotHeight = height - pad.top  - pad.bottom;
+  const yFor    = (v) => pad.top + plotHeight - ((v - minValue) / range) * plotHeight;
+  const zeroY   = yFor(0);
+  const barBand = plotWidth / Math.max(1, projection.rows.length);
+  const xFor    = (i) => pad.left + i * barBand + barBand / 2;
+  const barW    = Math.max(6, Math.min(26, barBand - 3));
+
+  // Grid lines + Y axis labels
+  ctx.font = cs.font;
+  for (let v = minValue; v <= maxValue; v += axisStep) {
+    const y = yFor(v);
+    const isZero = v === 0 && hasShortfall;
+    ctx.strokeStyle = isZero ? "rgba(239,68,68,0.5)" : cs.gridColor;
+    ctx.lineWidth   = isZero ? 1.5 : 1;
+    if (isZero) ctx.setLineDash([5, 3]);
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+    ctx.fillStyle = v < 0 ? "#ef4444" : cs.labelColor;
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText(formatCurrency(v), 8, y);
+  }
+
+  // Hatch pattern for shortfall bars
+  const hatchPattern = hasShortfall ? makeHatchPattern(ctx, "rgba(239,68,68,0.55)") : null;
+
+  // Bars
+  projection.rows.forEach((row, i) => {
+    const d = rowData[i];
+    const x = xFor(i) - barW / 2;
+
+    // ── Upward stack ──────────────────────────────────────────
+    let stack = 0;
+
+    // Spending segments (bills / holidays / car)
+    d.spending.forEach((seg) => {
+      if (seg.v <= 0) return;
+      const y = yFor(stack + seg.v);
+      ctx.fillStyle = seg.color;
+      ctx.fillRect(x, y, barW, yFor(stack) - y);
+      stack += seg.v;
+    });
+
+    // Positive free cash / surplus
+    if (d.surplus > 0) {
+      const y = yFor(stack + d.surplus);
+      ctx.fillStyle = "#8b5cf6";
+      ctx.fillRect(x, y, barW, yFor(stack) - y);
+      stack += d.surplus;
+    }
+
+    // Tax — red outline on top
+    if (!freeOnly && d.tax > 0) {
+      const y    = yFor(stack + d.tax);
+      const segH = yFor(stack) - y;
+      ctx.strokeStyle = "#ef4444";
+      ctx.lineWidth   = 2;
+      ctx.strokeRect(x + 1, y + 1, barW - 2, segH - 2);
+      ctx.lineWidth   = 1;
+    }
+
+    // ── Downward shortfall bar ────────────────────────────────
+    if (d.shortfall < -0.01) {
+      const shortfallH = yFor(d.shortfall) - zeroY;
+      // Solid red base
+      ctx.fillStyle = "rgba(239,68,68,0.25)";
+      ctx.fillRect(x, zeroY, barW, shortfallH);
+      // Diagonal hatch overlay
+      if (hatchPattern) {
+        ctx.fillStyle = hatchPattern;
+        ctx.fillRect(x, zeroY, barW, shortfallH);
+      }
+      // Red outline
+      ctx.strokeStyle = "#ef4444";
+      ctx.lineWidth   = 1.5;
+      ctx.strokeRect(x + 0.75, zeroY + 0.75, barW - 1.5, shortfallH - 1.5);
+      ctx.lineWidth   = 1;
+    }
+  });
+
+  // X axis year/age labels
+  const targetLabels = Math.max(4, Math.min(8, Math.floor(plotWidth / 90)));
+  const yearStep     = Math.max(1, Math.ceil((projection.rows.length - 1) / Math.max(1, targetLabels - 1)));
+  const labelIndexes = [];
+  for (let i = 0; i < projection.rows.length; i += yearStep) labelIndexes.push(i);
+  if (labelIndexes[labelIndexes.length - 1] !== projection.rows.length - 1) labelIndexes.push(projection.rows.length - 1);
+
+  ctx.fillStyle = cs.labelColor; ctx.textAlign = "center"; ctx.textBaseline = "top";
+  labelIndexes.forEach((ri) => {
+    const row = projection.rows[ri];
+    const x   = xFor(ri);
+    ctx.fillText(String(row.calendarYear), x, height - 34);
+    ctx.fillText(`(age ${row.age})`,       x, height - 18);
+  });
+
+  // Legend
+  const legendSources = freeOnly
+    ? [{ label: "Free cash", color: "#8b5cf6" }]
+    : [
+        ...spendKeys,
+        { label: "Free cash",  color: "#8b5cf6" },
+        { label: "Tax",        color: "#ef4444", outline: true },
+        ...(hasShortfall ? [{ label: "Shortfall", color: "#ef4444", hatch: true }] : []),
+      ];
+
+  let lx = pad.left, ly = 14;
+  ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.font = cs.font;
+  legendSources.forEach((src) => {
+    const w = ctx.measureText(src.label).width + 44;
+    if (lx > pad.left && lx + w > width - pad.right) { lx = pad.left; ly += 18; }
+    if (src.outline) {
+      ctx.strokeStyle = src.color; ctx.lineWidth = 2;
+      ctx.strokeRect(lx, ly - 5, 18, 10); ctx.lineWidth = 1;
+    } else if (src.hatch && hatchPattern) {
+      ctx.fillStyle = "rgba(239,68,68,0.25)";
+      ctx.fillRect(lx, ly - 5, 18, 10);
+      ctx.fillStyle = hatchPattern;
+      ctx.fillRect(lx, ly - 5, 18, 10);
+      ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 1.5;
+      ctx.strokeRect(lx, ly - 5, 18, 10); ctx.lineWidth = 1;
+    } else {
+      ctx.fillStyle = src.color;
+      ctx.fillRect(lx, ly - 5, 18, 10);
+    }
+    ctx.fillStyle = cs.legendColor;
+    ctx.fillText(src.label, lx + 24, ly);
+    lx += w;
+  });
+}
+
 function renderChart(projection) {
   potChartWrap.hidden = !uiState.showPotChart;
   incomeChartWrap.hidden = !uiState.showIncomeChart;
   chartEmptyMessage.hidden = uiState.showPotChart || uiState.showIncomeChart;
+
+  renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, freeOnly: uiState.spendingChartFreeOnly });
+  const captionParts = [];
+  if (uiState.spendingChartFreeOnly) captionParts.push("free cash only");
+  if (uiState.spendingChartMonthly) captionParts.push("monthly averages");
+  if (uiState.spendingChartReal) captionParts.push("today's money");
+  spendingChartCaption.textContent = captionParts.length ? `Showing ${captionParts.join(", ")}` : "Annual nominal values";
 
   if (uiState.showPotChart) {
     renderChartCanvas({
@@ -1867,7 +2140,19 @@ function renderChart(projection) {
   }
 }
 
+function getChartStyle() {
+  const style = getComputedStyle(document.documentElement);
+  const get = (v) => style.getPropertyValue(v).trim();
+  return {
+    labelColor: get("--muted") || "#6c5b48",
+    legendColor: get("--text") || "#4f4032",
+    gridColor: get("--line") || "rgba(38,25,12,0.12)",
+    font: `12px ${document.body.style.fontFamily || "system-ui, sans-serif"}`,
+  };
+}
+
 function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback = 0, minFloor = null }) {
+  const cs = getChartStyle();
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth || canvas.width;
@@ -1898,7 +2183,7 @@ function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback =
     yTicks.push(value);
   }
 
-  ctx.strokeStyle = "rgba(38, 25, 12, 0.12)";
+  ctx.strokeStyle = cs.gridColor;
   ctx.lineWidth = 1;
   yTicks.forEach((value) => {
     const y = yFor(value);
@@ -1909,7 +2194,7 @@ function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback =
   });
 
   const zeroY = yFor(0);
-  ctx.strokeStyle = "rgba(180, 35, 24, 0.35)";
+  ctx.strokeStyle = "rgba(180, 35, 24, 0.45)";
   ctx.beginPath();
   ctx.moveTo(pad.left, zeroY);
   ctx.lineTo(width - pad.right, zeroY);
@@ -1954,8 +2239,8 @@ function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback =
 
   series.forEach(drawSeries);
 
-  ctx.fillStyle = "#6c5b48";
-  ctx.font = '12px Georgia, "Times New Roman", serif';
+  ctx.fillStyle = cs.labelColor;
+  ctx.font = cs.font;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   yTicks.forEach((value) => {
@@ -1973,6 +2258,7 @@ function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback =
     yearLabelIndexes.push(projection.rows.length - 1);
   }
 
+  ctx.fillStyle = cs.labelColor;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   yearLabelIndexes.forEach((rowIndex) => {
@@ -1986,7 +2272,7 @@ function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback =
   let legendY = 16;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.font = '12px Georgia, "Times New Roman", serif';
+  ctx.font = cs.font;
   series.forEach((item) => {
     const itemWidth = ctx.measureText(item.label).width + 62;
     if (legendX > pad.left && legendX + itemWidth > width - pad.right) {
@@ -2001,7 +2287,7 @@ function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback =
     ctx.lineTo(legendX + 22, legendY);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = "#4f4032";
+    ctx.fillStyle = cs.legendColor;
     ctx.fillText(item.label, legendX + 28, legendY);
     legendX += itemWidth;
   });
@@ -2024,6 +2310,7 @@ function renderStackedIncomeChartCanvas({ canvas, projection }) {
     incomeSources.reduce((sum, source) => sum + Math.max(0, Number(row[source.key]) || 0), 0)
   );
 
+  const cs = getChartStyle();
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth || canvas.width;
@@ -2044,16 +2331,16 @@ function renderStackedIncomeChartCanvas({ canvas, projection }) {
   const barGap = 3;
   const barWidth = Math.max(6, Math.min(26, barBand - barGap));
 
-  ctx.strokeStyle = "rgba(38, 25, 12, 0.12)";
+  ctx.strokeStyle = cs.gridColor;
   ctx.lineWidth = 1;
+  ctx.font = cs.font;
   for (let value = 0; value <= maxValue; value += axisStep) {
     const y = yFor(value);
     ctx.beginPath();
     ctx.moveTo(pad.left, y);
     ctx.lineTo(width - pad.right, y);
     ctx.stroke();
-    ctx.fillStyle = "#6c5b48";
-    ctx.font = '12px Georgia, "Times New Roman", serif';
+    ctx.fillStyle = cs.labelColor;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(formatCurrency(value), 8, y);
@@ -2101,7 +2388,7 @@ function renderStackedIncomeChartCanvas({ canvas, projection }) {
     yearLabelIndexes.push(projection.rows.length - 1);
   }
 
-  ctx.fillStyle = "#6c5b48";
+  ctx.fillStyle = cs.labelColor;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   yearLabelIndexes.forEach((rowIndex) => {
@@ -2115,7 +2402,7 @@ function renderStackedIncomeChartCanvas({ canvas, projection }) {
   let legendY = 16;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.font = '12px Georgia, "Times New Roman", serif';
+  ctx.font = cs.font;
   [...incomeSources, needSeries].forEach((item) => {
     const itemWidth = ctx.measureText(item.label).width + 58;
     if (legendX > pad.left && legendX + itemWidth > width - pad.right) {
@@ -2135,7 +2422,7 @@ function renderStackedIncomeChartCanvas({ canvas, projection }) {
       ctx.fillStyle = item.color;
       ctx.fillRect(legendX, legendY - 5, 18, 10);
     }
-    ctx.fillStyle = "#4f4032";
+    ctx.fillStyle = cs.legendColor;
     ctx.fillText(item.label, legendX + 26, legendY);
     legendX += itemWidth;
   });
@@ -2663,8 +2950,8 @@ function exportFormulaWorkbookToExcel() {
       incomeTotal: `=SUM(${cell("partnerIncome", rowNumber)}:${cell("definedBenefitLumpSum", rowNumber)})+${cell("taxFreeCash", rowNumber)}`,
       pensionNeededGross: `=${targetGross}`,
       grossPensionWithdrawal: `=LET(baseWithdrawal,IF(${assumptionRef["Tax optimisation mode"]}=1,${pairedTaxableWithdrawal},MAX(0,${cell("pensionNeededGross", rowNumber)}-${cell("taxFreeCash", rowNumber)})),maxDrawdown,IF(${assumptionRef["Maximise drawdown to basic rate"]}=1,${basicRateWithdrawalLimit},0),pairedWithdrawal,IF(${assumptionRef["Force TFLS 25/75 pairing"]}=1,${cell("taxFreeCash", rowNumber)}*3,0),MAX(baseWithdrawal,maxDrawdown,pairedWithdrawal))`,
-      holidays: `=IF(${assumptionRef["Apply CPI to holidays"]}=1,${assumptionRef["Holidays annual"]}*POWER(1+${assumptionRef["CPI rate"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Holidays annual"]})`,
-      householdBills: `=IF(${assumptionRef["Apply CPI to bills"]}=1,${assumptionRef["Bills annual"]}*POWER(1+${assumptionRef["CPI rate"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Bills annual"]})`,
+      holidays: `=IF(${assumptionRef["Apply CPI to holidays"]}=1,${assumptionRef["Holidays annual"]}*POWER(1+${assumptionRef["CPI rate"]}/12,12*(${assumptionRef["Retirement year"]}-${assumptionRef["Current year"]}+${cell("yearIndex", rowNumber)}-1)),${assumptionRef["Holidays annual"]})`,
+      householdBills: `=IF(${assumptionRef["Apply CPI to bills"]}=1,${assumptionRef["Bills annual"]}*POWER(1+${assumptionRef["CPI rate"]}/12,12*(${assumptionRef["Retirement year"]}-${assumptionRef["Current year"]}+${cell("yearIndex", rowNumber)}-1)),${assumptionRef["Bills annual"]})`,
       estimatedTax: `=${taxFormula}`,
       excessNet: `=${cell("incomeTotal", rowNumber)}+${cell("grossPensionWithdrawal", rowNumber)}+${cell("sourcedFromSavings", rowNumber)}-${cell("estimatedTax", rowNumber)}-${cell("householdBills", rowNumber)}-${cell("holidays", rowNumber)}`,
       openingPot: `=${priorPot}`,
@@ -2878,6 +3165,24 @@ incomeChartModeSelect.addEventListener("change", () => {
   render();
 });
 
+spendingChartRealToggle.addEventListener("change", () => {
+  uiState.spendingChartReal = spendingChartRealToggle.checked;
+  saveUiState();
+  render();
+});
+
+spendingChartMonthlyToggle.addEventListener("change", () => {
+  uiState.spendingChartMonthly = spendingChartMonthlyToggle.checked;
+  saveUiState();
+  render();
+});
+
+spendingChartFreeToggle.addEventListener("change", () => {
+  uiState.spendingChartFreeOnly = spendingChartFreeToggle.checked;
+  saveUiState();
+  render();
+});
+
 togglePanelButton.addEventListener("click", () => {
   uiState.controlsHidden = !uiState.controlsHidden;
   saveUiState();
@@ -2907,7 +3212,436 @@ versionBadge.addEventListener("click", showVersionChangeDate);
 importFile.addEventListener("change", importState);
 window.addEventListener("resize", render);
 
+// ─── Share link ───────────────────────────────────────────────────────────
+
+const shareLinkButton = document.getElementById("share-link-button");
+const shareDialog = document.getElementById("share-dialog");
+const closeShareDialogButton = document.getElementById("close-share-dialog-button");
+const shareLinkInput = document.getElementById("share-link-input");
+const copyShareLinkButton = document.getElementById("copy-share-link-button");
+const shareCopyConfirm = document.getElementById("share-copy-confirm");
+let shareCopyTimeout = null;
+
+shareLinkButton.addEventListener("click", () => {
+  shareLinkInput.value = generateShareUrl();
+  shareCopyConfirm.hidden = true;
+  shareDialog.hidden = false;
+  // Select the URL so it's easy to copy manually too
+  setTimeout(() => shareLinkInput.select(), 50);
+});
+
+closeShareDialogButton.addEventListener("click", () => {
+  shareDialog.hidden = true;
+});
+
+shareDialog.addEventListener("click", (e) => {
+  if (e.target === shareDialog) shareDialog.hidden = true;
+});
+
+copyShareLinkButton.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(shareLinkInput.value);
+  } catch {
+    // Fallback for file:// where clipboard API may be blocked
+    shareLinkInput.select();
+    document.execCommand("copy");
+  }
+  shareCopyConfirm.hidden = false;
+  clearTimeout(shareCopyTimeout);
+  shareCopyTimeout = setTimeout(() => { shareCopyConfirm.hidden = true; }, 2500);
+});
+
 render();
 if (shouldOpenBasicSetupOnLoad) {
   openBasicSetup();
 }
+
+// ─── Theme engine ──────────────────────────────────────────────────────────
+
+const THEME_STORAGE_KEY = "pension-forecaster-theme-v1";
+
+const THEME_PRESETS = {
+  original: {
+    "--bg": "#f4efe6",
+    "--panel": "rgba(255, 252, 247, 0.92)",
+    "--panel-strong": "#fffdf9",
+    "--card": "rgba(255, 252, 247, 0.97)",
+    "--card-2": "rgba(255, 246, 232, 0.93)",
+    "--card-warn": "rgba(255, 240, 240, 0.98)",
+    "--card-warn-2": "rgba(255, 226, 226, 0.94)",
+    "--card-success": "rgba(240, 255, 248, 0.98)",
+    "--card-success-2": "rgba(220, 252, 236, 0.94)",
+    "--input-bg": "rgba(255, 255, 255, 0.72)",
+    "--line": "rgba(66, 50, 28, 0.14)",
+    "--line-strong": "rgba(66, 50, 28, 0.26)",
+    "--text": "#26190c",
+    "--muted": "#6c5b48",
+    "--accent": "#0f766e",
+    "--accent-2": "#b45309",
+    "--danger": "#b42318",
+    "--success": "#15803d",
+    "--shadow": "0 20px 50px rgba(56, 35, 7, 0.12), 0 4px 12px rgba(56, 35, 7, 0.08)",
+    "--radius": "22px",
+  },
+  dark: {
+    "--bg": "#1a2236",
+    "--panel": "rgba(10, 14, 26, 0.88)",
+    "--panel-strong": "rgba(8, 12, 22, 0.97)",
+    "--card": "rgba(12, 16, 30, 0.97)",
+    "--card-2": "rgba(8, 12, 22, 0.95)",
+    "--card-warn": "rgba(30, 14, 14, 0.96)",
+    "--card-warn-2": "rgba(20, 10, 10, 0.9)",
+    "--card-success": "rgba(10, 30, 20, 0.96)",
+    "--card-success-2": "rgba(8, 22, 16, 0.9)",
+    "--input-bg": "rgba(255, 255, 255, 0.04)",
+    "--line": "rgba(99, 179, 237, 0.13)",
+    "--line-strong": "rgba(99, 179, 237, 0.24)",
+    "--text": "#e8edf8",
+    "--muted": "#7a8fba",
+    "--accent": "#00d4b8",
+    "--accent-2": "#7c3aed",
+    "--accent-glow": "rgba(0, 212, 184, 0.28)",
+    "--button-text": "#0b0f1a",
+    "--danger": "#f87171",
+    "--success": "#34d399",
+    "--shadow": "0 2px 0px rgba(255,255,255,0.04), 0 8px 24px rgba(0,0,0,0.5), 0 24px 64px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.35)",
+    "--radius": "20px",
+  },
+  metallic: {
+    "--bg": "#131416",
+    "--panel": "rgba(58, 62, 70, 0.92)",
+    "--panel-strong": "rgba(38, 40, 46, 0.98)",
+    "--card": "rgba(72, 76, 86, 0.97)",
+    "--card-2": "rgba(48, 51, 58, 0.95)",
+    "--card-warn": "rgba(70, 48, 44, 0.97)",
+    "--card-warn-2": "rgba(52, 34, 30, 0.95)",
+    "--card-success": "rgba(44, 62, 52, 0.97)",
+    "--card-success-2": "rgba(32, 48, 38, 0.95)",
+    "--input-bg": "rgba(22, 24, 28, 0.75)",
+    "--line": "rgba(210, 218, 235, 0.16)",
+    "--line-strong": "rgba(220, 228, 245, 0.28)",
+    "--text": "#dde2ee",
+    "--muted": "#8890a4",
+    "--accent": "#7ab8d8",
+    "--accent-2": "#c8a060",
+    "--accent-glow": "rgba(122, 184, 216, 0.28)",
+    "--button-text": "#0e1012",
+    "--danger": "#e07878",
+    "--success": "#68c898",
+    "--shadow": "0 2px 0px rgba(240,245,255,0.1), 0 8px 24px rgba(0,0,0,0.65), 0 24px 64px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.5)",
+    "--radius": "20px",
+  },
+};
+
+// Union of all preset keys so switching themes always clears every var
+const ALL_THEME_VARS = [...new Set(Object.values(THEME_PRESETS).flatMap(Object.keys))];
+
+function buildCustomVars(bgHue, tileHue, canvasHue, textHue) {
+  const cardL = 8;
+  const bgL = 16;
+  const textL = 90;
+  const textS = 20;
+  return {
+    "--bg": `hsl(${canvasHue}, 30%, ${bgL}%)`,
+    "--panel": `hsla(${tileHue}, 42%, ${cardL - 1}%, 0.88)`,
+    "--panel-strong": `hsla(${tileHue}, 42%, ${Math.max(2, cardL - 3)}%, 0.97)`,
+    "--card": `hsla(${tileHue}, 38%, ${cardL}%, 0.97)`,
+    "--card-2": `hsla(${tileHue}, 38%, ${Math.max(2, cardL - 2)}%, 0.95)`,
+    "--card-warn": `hsla(0, 45%, ${cardL}%, 0.96)`,
+    "--card-warn-2": `hsla(0, 45%, ${Math.max(2, cardL - 2)}%, 0.9)`,
+    "--card-success": `hsla(150, 45%, ${cardL}%, 0.96)`,
+    "--card-success-2": `hsla(150, 45%, ${Math.max(2, cardL - 2)}%, 0.9)`,
+    "--input-bg": `hsla(${tileHue}, 30%, 18%, 0.6)`,
+    "--line": `hsla(${bgHue}, 60%, 65%, 0.13)`,
+    "--line-strong": `hsla(${bgHue}, 60%, 65%, 0.26)`,
+    "--text": `hsl(${textHue}, ${textS}%, ${textL}%)`,
+    "--muted": `hsl(${textHue}, 16%, 58%)`,
+    "--accent": `hsl(${bgHue}, 80%, 55%)`,
+    "--accent-2": `hsl(${(bgHue + 130) % 360}, 68%, 58%)`,
+    "--accent-glow": `hsla(${bgHue}, 80%, 55%, 0.3)`,
+    "--button-text": `hsl(${canvasHue}, 30%, 10%)`,
+    "--danger": "#f87171",
+    "--success": "#34d399",
+    "--shadow": "0 2px 0px rgba(255,255,255,0.04), 0 8px 24px rgba(0,0,0,0.5), 0 24px 64px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.35)",
+    "--radius": "20px",
+  };
+}
+
+function buildCustomBackground(bgHue, tileHue) {
+  const h2 = (bgHue + 130) % 360;
+  const h3 = (bgHue + 200) % 360;
+  return [
+    `radial-gradient(ellipse 80% 50% at 20% -10%, hsla(${bgHue},80%,55%,0.28) 0%, transparent 60%)`,
+    `radial-gradient(ellipse 60% 40% at 85% 10%, hsla(${h2},65%,58%,0.32) 0%, transparent 55%)`,
+    `radial-gradient(ellipse 50% 60% at 50% 100%, hsla(${h3},70%,50%,0.22) 0%, transparent 60%)`,
+    `radial-gradient(ellipse 30% 30% at 10% 80%, hsla(${bgHue},80%,55%,0.14) 0%, transparent 50%)`,
+  ].join(", ");
+}
+
+function buildOriginalBackground() {
+  return [
+    "radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%)",
+    "radial-gradient(circle at top right, rgba(180, 83, 9, 0.16), transparent 24%)",
+    "linear-gradient(180deg, #fbf7f0 0%, #f4efe6 48%, #efe4d1 100%)",
+  ].join(", ");
+}
+
+let activeTheme = "dark";
+let customBgHue = 175;
+let customTileHue = 220;
+let customCanvasHue = 220;
+let customTextHue = 220;
+
+function applyTheme(theme, bgHue, tileHue, canvasHue, textHue) {
+  const root = document.documentElement;
+
+  // Clear all previously set inline vars
+  ALL_THEME_VARS.forEach((v) => root.style.removeProperty(v));
+
+  // Set new vars
+  const vars = theme === "custom"
+    ? buildCustomVars(bgHue, tileHue, canvasHue, textHue)
+    : THEME_PRESETS[theme] || THEME_PRESETS.dark;
+  Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v));
+
+  // Body background: use inline style for original + custom; clear for dark (let CSS rule win)
+  if (theme === "original") {
+    document.body.style.backgroundImage = buildOriginalBackground();
+    document.body.style.backgroundColor = "#f4efe6";
+  } else if (theme === "metallic") {
+    document.body.style.backgroundImage = [
+      "radial-gradient(ellipse 70% 45% at 20% 10%, rgba(200, 215, 240, 0.055) 0%, transparent 60%)",
+      "radial-gradient(ellipse 55% 40% at 80% 85%, rgba(180, 195, 220, 0.04) 0%, transparent 55%)",
+      "linear-gradient(180deg, #1a1c20 0%, #131416 45%, #0e1012 100%)",
+    ].join(", ");
+    document.body.style.backgroundColor = "#131416";
+  } else if (theme === "custom") {
+    document.body.style.backgroundImage = buildCustomBackground(bgHue, tileHue);
+    document.body.style.backgroundColor = `hsl(${canvasHue}, 30%, 16%)`;
+  } else {
+    document.body.style.backgroundImage = "";
+    document.body.style.backgroundColor = "";
+  }
+
+  // data-theme drives font-family, h1 colour, table colours etc via CSS
+  root.setAttribute("data-theme", theme);
+
+  // Sync chip active state
+  document.querySelectorAll(".theme-chip").forEach((btn) => {
+    btn.classList.toggle("theme-chip-active", btn.dataset.theme === theme);
+  });
+}
+
+function saveThemePrefs() {
+  localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ theme: activeTheme, bgHue: customBgHue, tileHue: customTileHue, canvasHue: customCanvasHue, textHue: customTextHue }));
+}
+
+function loadThemePrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) || "{}");
+    activeTheme = ["original", "dark", "metallic", "custom"].includes(saved.theme) ? saved.theme : "dark";
+    customBgHue = Number.isFinite(saved.bgHue) ? saved.bgHue : 175;
+    customTileHue = Number.isFinite(saved.tileHue) ? saved.tileHue : 220;
+    customCanvasHue = Number.isFinite(saved.canvasHue) ? saved.canvasHue : 220;
+    customTextHue = Number.isFinite(saved.textHue) ? saved.textHue : 220;
+  } catch {
+    activeTheme = "dark";
+  }
+}
+
+// Grab theme panel elements
+const themeSettingsBtn = document.getElementById("theme-settings-button");
+const themePanel = document.getElementById("theme-panel");
+const themeCustomSliders = document.getElementById("theme-custom-sliders");
+const bgHueSlider = document.getElementById("bg-hue-slider");
+const tileHueSlider = document.getElementById("tile-hue-slider");
+const canvasHueSlider = document.getElementById("canvas-hue-slider");
+const textHueSlider = document.getElementById("text-hue-slider");
+const bgHueSwatch = document.getElementById("bg-hue-swatch");
+const tileHueSwatch = document.getElementById("tile-hue-swatch");
+const canvasHueSwatch = document.getElementById("canvas-hue-swatch");
+const textHueSwatch = document.getElementById("text-hue-swatch");
+
+function syncSwatches() {
+  bgHueSwatch.style.background = `hsl(${customBgHue}, 80%, 55%)`;
+  tileHueSwatch.style.background = `hsl(${customTileHue}, 45%, 20%)`;
+  canvasHueSwatch.style.background = `hsl(${customCanvasHue}, 30%, 20%)`;
+  textHueSwatch.style.background = `hsl(${customTextHue}, 22%, 88%)`;
+}
+
+// Initialise
+loadThemePrefs();
+bgHueSlider.value = customBgHue;
+tileHueSlider.value = customTileHue;
+canvasHueSlider.value = customCanvasHue;
+textHueSlider.value = customTextHue;
+syncSwatches();
+applyTheme(activeTheme, customBgHue, customTileHue, customCanvasHue, customTextHue);
+themeCustomSliders.hidden = activeTheme !== "custom";
+
+// Toggle panel open/close
+themeSettingsBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  themePanel.hidden = !themePanel.hidden;
+});
+
+document.addEventListener("click", (e) => {
+  if (!themePanel.hidden && !themePanel.contains(e.target) && e.target !== themeSettingsBtn) {
+    themePanel.hidden = true;
+  }
+});
+
+// Theme chip selection
+document.querySelectorAll(".theme-chip").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    activeTheme = btn.dataset.theme;
+    themeCustomSliders.hidden = activeTheme !== "custom";
+    applyTheme(activeTheme, customBgHue, customTileHue, customCanvasHue, customTextHue);
+    saveThemePrefs();
+  });
+});
+
+// Custom hue sliders
+bgHueSlider.addEventListener("input", () => {
+  customBgHue = Number(bgHueSlider.value);
+  syncSwatches();
+  applyTheme("custom", customBgHue, customTileHue, customCanvasHue, customTextHue);
+  saveThemePrefs();
+});
+
+tileHueSlider.addEventListener("input", () => {
+  customTileHue = Number(tileHueSlider.value);
+  syncSwatches();
+  applyTheme("custom", customBgHue, customTileHue, customCanvasHue, customTextHue);
+  saveThemePrefs();
+});
+
+canvasHueSlider.addEventListener("input", () => {
+  customCanvasHue = Number(canvasHueSlider.value);
+  syncSwatches();
+  applyTheme("custom", customBgHue, customTileHue, customCanvasHue, customTextHue);
+  saveThemePrefs();
+});
+
+textHueSlider.addEventListener("input", () => {
+  customTextHue = Number(textHueSlider.value);
+  syncSwatches();
+  applyTheme("custom", customBgHue, customTileHue, customCanvasHue, customTextHue);
+  saveThemePrefs();
+});
+
+// ─── Income vertical sliders ───────────────────────────────────────────────
+
+function formatSliderValue(cfg, value) {
+  if (cfg.format === "number") {
+    return `${NUMBER.format(value)}${cfg.unit ? " " + cfg.unit : ""}`;
+  }
+  return formatCurrency(value);
+}
+
+const incomeVSliderPopup = document.getElementById("income-vslider-popup");
+const incomeVSliderInput = document.getElementById("income-vslider-input");
+const incomeVSliderValue = document.getElementById("income-vslider-value");
+const incomeVSliderLabel = document.getElementById("income-vslider-label");
+let activeIncomeField = null;
+let activeIncomeBtn = null;
+
+const INCOME_SLIDER_CONFIG = {
+  incomeRequired:    { label: "Income required",   min: 0,  max: 100000, step: 1000, format: "currency" },
+  incomeAfterYear10: { label: "After year 10",     min: 0,  max: 100000, step: 1000, format: "currency" },
+  billsAnnual:       { label: "Household bills",   min: 0,  max: 50000,  step: 1000, format: "currency" },
+  holidaysAnnual:    { label: "Holidays",          min: 0,  max: 25000,  step: 500,  format: "currency" },
+  carCost:           { label: "Car cost",          min: 0,  max: 100000, step: 1000, format: "currency" },
+  retirementAge:     { label: "Retirement age",    min: () => state.currentAge, max: 70,  step: 1, format: "number", unit: "yrs" },
+  planYears:         { label: "Plan years",        min: 1,                       max: 35,  step: 1, format: "number", unit: "yrs" },
+  planToAge:         { label: "Plan to age",       min: () => state.currentAge, max: 100, step: 1, format: "number", unit: "yrs" },
+};
+
+function positionIncomeSlider(btn) {
+  const rect = btn.getBoundingClientRect();
+  const popupW = 134;
+  const popupH = 318; // fixed height matching CSS content
+
+  let top = rect.top - popupH - 10;
+  let left = rect.left + rect.width / 2 - popupW / 2;
+
+  // If too close to top of viewport, flip below the button instead
+  if (top < 8) top = rect.bottom + 10;
+
+  // Clamp horizontally to viewport
+  left = Math.max(8, Math.min(left, window.innerWidth - popupW - 8));
+
+  // position: fixed — viewport coords only, no scrollY
+  incomeVSliderPopup.style.top = `${top}px`;
+  incomeVSliderPopup.style.left = `${left}px`;
+}
+
+document.querySelectorAll(".income-popup-btn").forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const fieldKey = btn.dataset.for;
+    const cfg = INCOME_SLIDER_CONFIG[fieldKey] || { label: fieldKey, min: 0, max: 100000, step: 1000 };
+
+    // Toggle off if same button clicked again
+    if (!incomeVSliderPopup.hidden && activeIncomeField === fieldKey) {
+      incomeVSliderPopup.hidden = true;
+      btn.classList.remove("active");
+      activeIncomeField = null;
+      activeIncomeBtn = null;
+      return;
+    }
+
+    // Switch to this field
+    if (activeIncomeBtn) activeIncomeBtn.classList.remove("active");
+    activeIncomeField = fieldKey;
+    activeIncomeBtn = btn;
+    btn.classList.add("active");
+
+    // Resolve dynamic min/max (can be a function e.g. () => state.currentAge)
+    const resolvedMin = typeof cfg.min === "function" ? cfg.min() : cfg.min;
+    const resolvedMax = typeof cfg.max === "function" ? cfg.max() : cfg.max;
+
+    // Apply field-specific slider range
+    incomeVSliderInput.min  = resolvedMin;
+    incomeVSliderInput.max  = resolvedMax;
+    incomeVSliderInput.step = cfg.step;
+
+    const currentValue = Math.max(resolvedMin, Math.min(resolvedMax, Number(state[fieldKey]) || 0));
+    incomeVSliderInput.value = currentValue;
+    incomeVSliderValue.textContent = formatSliderValue(cfg, currentValue);
+    incomeVSliderLabel.textContent = cfg.label;
+
+    // Update cap labels
+    document.querySelector(".income-vslider-cap:first-of-type").textContent =
+      formatSliderValue(cfg, resolvedMax);
+    document.querySelector(".income-vslider-cap:last-of-type").textContent =
+      formatSliderValue(cfg, resolvedMin);
+
+    positionIncomeSlider(btn);
+    incomeVSliderPopup.hidden = false;
+  });
+});
+
+incomeVSliderInput.addEventListener("input", () => {
+  const value = Number(incomeVSliderInput.value);
+  const cfg = INCOME_SLIDER_CONFIG[activeIncomeField] || { format: "currency" };
+  incomeVSliderValue.textContent = formatSliderValue(cfg, value);
+  if (activeIncomeField) {
+    state[activeIncomeField] = value;
+    state = normaliseState(state, activeIncomeField);
+    render();
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (
+    !incomeVSliderPopup.hidden &&
+    !incomeVSliderPopup.contains(e.target) &&
+    !e.target.classList.contains("income-popup-btn")
+  ) {
+    incomeVSliderPopup.hidden = true;
+    if (activeIncomeBtn) activeIncomeBtn.classList.remove("active");
+    activeIncomeField = null;
+    activeIncomeBtn = null;
+  }
+});
