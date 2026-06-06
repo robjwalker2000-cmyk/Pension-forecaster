@@ -177,8 +177,10 @@ const basicSetupDialog = document.getElementById("basic-setup-dialog");
 const closeBasicSetupButton = document.getElementById("close-basic-setup-button");
 const applyBasicSetupButton = document.getElementById("apply-basic-setup-button");
 const showPotChartToggle = document.getElementById("show-pot-chart-toggle");
+const savingsPreRetirementToggle = document.getElementById("savings-preretirement-toggle");
 const showIncomeChartToggle = document.getElementById("show-income-chart-toggle");
-const incomeChartModeSelect = document.getElementById("income-chart-mode-select");
+const showSpendingChartToggle = document.getElementById("show-spending-chart-toggle");
+const spendingChartSection = document.getElementById("spending-chart-section");
 const spendingChartCanvas = document.getElementById("spending-chart");
 const spendingChartRealToggle = document.getElementById("spending-chart-real-toggle");
 const spendingChartMonthlyToggle = document.getElementById("spending-chart-monthly-toggle");
@@ -186,6 +188,8 @@ const spendingChartFreeToggle = document.getElementById("spending-chart-free-tog
 const spendingChartCaption = document.getElementById("spending-chart-caption");
 const layout = document.getElementById("layout");
 const tablePanel = document.querySelector(".table-panel");
+const tableWrap = document.getElementById("table-wrap");
+const showTableToggle = document.getElementById("show-table-toggle");
 
 function loadStateFromUrlHash() {
   try {
@@ -316,10 +320,12 @@ function loadUiState() {
       showGranularCrystallisationFields: Boolean(saved.showGranularCrystallisationFields),
       showPotChart: saved.showPotChart !== false,
       showIncomeChart: saved.showIncomeChart !== false,
-      incomeChartMode: ["line", "stacked"].includes(saved.incomeChartMode) ? saved.incomeChartMode : "line",
+      showSpendingChart: saved.showSpendingChart !== false,
+      showTable: saved.showTable !== false,
       spendingChartReal: Boolean(saved.spendingChartReal),
       spendingChartMonthly: Boolean(saved.spendingChartMonthly),
       spendingChartFreeOnly: Boolean(saved.spendingChartFreeOnly),
+      savingsShowPreRetirement: Boolean(saved.savingsShowPreRetirement),
       tableExpanded: Boolean(saved.tableExpanded),
       customTableFields: Array.isArray(saved.customTableFields) ? saved.customTableFields : [],
     };
@@ -333,10 +339,12 @@ function loadUiState() {
       showGranularCrystallisationFields: false,
       showPotChart: true,
       showIncomeChart: true,
-      incomeChartMode: "line",
+      showSpendingChart: true,
+      showTable: true,
       spendingChartReal: false,
       spendingChartMonthly: false,
       spendingChartFreeOnly: false,
+      savingsShowPreRetirement: false,
       tableExpanded: false,
       customTableFields: [],
     };
@@ -357,10 +365,12 @@ function applyUiState() {
   granularCrystallisationToggle.checked = Boolean(uiState.showGranularCrystallisationFields);
   showPotChartToggle.checked = Boolean(uiState.showPotChart);
   showIncomeChartToggle.checked = Boolean(uiState.showIncomeChart);
-  incomeChartModeSelect.value = uiState.incomeChartMode;
+  showSpendingChartToggle.checked = Boolean(uiState.showSpendingChart);
+  showTableToggle.checked = Boolean(uiState.showTable);
   spendingChartRealToggle.checked = Boolean(uiState.spendingChartReal);
   spendingChartMonthlyToggle.checked = Boolean(uiState.spendingChartMonthly);
   spendingChartFreeToggle.checked = Boolean(uiState.spendingChartFreeOnly);
+  savingsPreRetirementToggle.checked = Boolean(uiState.savingsShowPreRetirement);
   tablePanel.classList.toggle("table-panel-expanded", Boolean(uiState.tableExpanded));
   toggleTableWidthButton.textContent = uiState.tableExpanded ? "-" : "+";
   toggleTableWidthButton.setAttribute("aria-label", uiState.tableExpanded ? "Reduce table width" : "Expand table width");
@@ -778,24 +788,85 @@ function calculateProjection(source) {
     effectivePreRetirementGrowthRate = (Math.pow(totalEnd / totalStart, 1 / (12 * yearsToRetirement)) - 1) * 12;
   }
   const personalSavingsEnabled = source.useSavings !== false;
-  let personalIsaSavingsAtRetirement = personalSavingsEnabled
-    ? compoundAnnual(source.personalIsaSavings, source.personalIsaGrowthRate, yearsToRetirement, true)
-    : 0;
-  const personalBankSavingsAtRetirement = personalSavingsEnabled
-    ? compoundAnnual(source.personalBankSavings, source.personalBankInterestRate, yearsToRetirement, true)
-    : 0;
-  const uncappedPersonalPremiumBondsAtRetirement = personalSavingsEnabled
-    ? compoundAnnual(source.personalPremiumBonds, source.personalPremiumBondsGrowthRate, yearsToRetirement, true)
-    : 0;
-  const premiumBondsToIsaBeforeRetirement = Math.max(0, uncappedPersonalPremiumBondsAtRetirement - UK_TAX_RULES.premiumBondsLimit);
-  const personalPremiumBondsAtRetirement = Math.min(uncappedPersonalPremiumBondsAtRetirement, UK_TAX_RULES.premiumBondsLimit);
-  personalIsaSavingsAtRetirement += premiumBondsToIsaBeforeRetirement;
-  const personalSavingsAtRetirement = personalIsaSavingsAtRetirement + personalBankSavingsAtRetirement + personalPremiumBondsAtRetirement;
   const partnerDetailsEnabled = source.partnerDetailsEnabled !== false;
-  const partnerSavingsAtRetirement = partnerDetailsEnabled
-    ? compoundAnnual(source.partnerSavings, source.partnerSavingsGrowthRate, yearsToRetirement, true)
-    : 0;
-  const totalSeparateSavingsAtRetirement = personalSavingsAtRetirement + partnerSavingsAtRetirement;
+
+  // ── Pre-retirement iterative savings simulation ───────────────────────────
+  // Run year-by-year so absolute-year events are applied correctly.
+  // This simultaneously produces preRetirementRows (for the chart) and the
+  // correct savings balances at retirement (fed into the post-retirement loop).
+  const preRetirementRows = [];
+  let preIsa     = personalSavingsEnabled ? source.personalIsaSavings       : 0;
+  let preBank    = personalSavingsEnabled ? source.personalBankSavings      : 0;
+  let prePb      = personalSavingsEnabled ? source.personalPremiumBonds     : 0;
+  let prePartner = partnerDetailsEnabled  ? source.partnerSavings           : 0;
+
+  for (let i = 0; i < yearsToRetirement; i++) {
+    const calYear = source.currentYear + i;
+    const preAge  = calYear - source.yearOfBirth;
+
+    // Apply growth (skip year 0 — that's the opening balance)
+    if (i > 0) {
+      const potRate = source.taperPreRetirementGrowth
+        ? (preRetirementGrowthRate + (postRetirementGrowthRate - preRetirementGrowthRate) * ((i - 1) / Math.max(1, yearsToRetirement - 1)))
+        : preRetirementGrowthRate;
+      void potRate; // pot handled separately via taperedPreRetirementGrowth above
+      preIsa     *= (1 + (source.personalIsaGrowthRate            || 0));
+      preBank    *= (1 + (source.personalBankInterestRate         || 0));
+      prePb      *= (1 + (source.personalPremiumBondsGrowthRate   || 0));
+      prePartner *= (1 + (source.partnerSavingsGrowthRate         || 0));
+      // Premium bonds cap: overflow goes to ISA
+      if (prePb > UK_TAX_RULES.premiumBondsLimit) {
+        preIsa += prePb - UK_TAX_RULES.premiumBondsLimit;
+        prePb   = UK_TAX_RULES.premiumBondsLimit;
+      }
+    }
+
+    // Apply absolute-year events
+    const preEventsThisYear = (source.specialEvents || []).filter((ev) =>
+      ev.yearType === "absolute" && Number(ev.year) === calYear
+    );
+    preEventsThisYear.forEach((ev) => {
+      const amount = Math.max(0, Number(ev.amount) || 0);
+      if (ev.type === "expense") {
+        if (ev.routing === "savings") {
+          const used = allocateSavingsWithdrawal(amount, preBank, prePb, preIsa, prePartner);
+          preBank    = Math.max(0, preBank    - used.bankSavingsUsed);
+          prePb      = Math.max(0, prePb      - used.premiumBondsUsed);
+          preIsa     = Math.max(0, preIsa     - used.isaSavingsUsed);
+          prePartner = Math.max(0, prePartner - used.partnerSavingsUsed);
+        } else {
+          // expense from drawdown — doesn't affect savings balances in the chart
+        }
+      } else {
+        if (ev.routing === "savings") {
+          preBank += amount;
+        }
+        // income routed to drawdown doesn't affect savings balances
+      }
+    });
+
+    // Snapshot the pot value for this year using the tapered formula
+    const prePotSnapshot = taperedPreRetirementGrowth(source.currentPot, preRetirementGrowthRate, postRetirementGrowthRate, i, source.taperPreRetirementGrowth);
+
+    preRetirementRows.push({
+      calendarYear: calYear,
+      age: preAge,
+      totalPotAfterGrowth: prePotSnapshot,
+      premiumBondsLeft:    prePb,
+      isaSavingsLeft:      preIsa,
+      bankSavingsLeft:     preBank,
+      partnerSavingsLeft:  prePartner,
+      eventTitles: preEventsThisYear.map((ev) => ev.title || (ev.type === "expense" ? "Expense" : "Income")),
+    });
+  }
+
+  // Final savings values at retirement (after all pre-retirement events + growth)
+  const personalIsaSavingsAtRetirement     = preIsa;
+  const personalBankSavingsAtRetirement    = preBank;
+  const personalPremiumBondsAtRetirement   = prePb;
+  const partnerSavingsAtRetirement         = prePartner;
+  const personalSavingsAtRetirement        = personalIsaSavingsAtRetirement + personalBankSavingsAtRetirement + personalPremiumBondsAtRetirement;
+  const totalSeparateSavingsAtRetirement   = personalSavingsAtRetirement + partnerSavingsAtRetirement;
   const remainingLumpSumAllowanceStart = Math.max(0, UK_TAX_RULES.standardLumpSumAllowance - source.lumpSumAllowanceUsed);
   const taxFreeLumpSum = Math.min(retirementUncrystallisedPot * 0.25, remainingLumpSumAllowanceStart);
   const rows = [];
@@ -1254,6 +1325,7 @@ function calculateProjection(source) {
       exceptionalTaxableIncome,
       exceptionalSavingsIncome,
       exceptionalSavingsExpense,
+      eventTitles: eventsThisYear.map((ev) => ev.title || (ev.type === "expense" ? "Expense" : "Income")),
     });
 
     uncrystallisedPot = uncrystallisedAfterGrowth;
@@ -1268,6 +1340,7 @@ function calculateProjection(source) {
   const endRow = rows[rows.length - 1];
   return {
     rows,
+    preRetirementRows,
     birthYear,
     retirementYear,
     yearsToRetirement,
@@ -1933,12 +2006,19 @@ function closeBasicSetup() {
 }
 
 function showVersionChangeDate() {
-  const versionText = "Version 3.4";
-  versionBadge.textContent = "Changed 2026-06-01 18:58 BST";
+  const versionText = versionBadge.dataset.version || versionBadge.textContent;
+  if (!versionBadge.dataset.version) versionBadge.dataset.version = versionText;
+  const modified = new Date(document.lastModified);
+  const formatted = modified.toLocaleString("en-GB", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+    timeZoneName: "short",
+  });
+  versionBadge.textContent = `Changed ${formatted}`;
   versionBadge.setAttribute("aria-label", versionBadge.textContent);
   clearTimeout(versionBadgeTimeout);
   versionBadgeTimeout = setTimeout(() => {
-    versionBadge.textContent = versionText;
+    versionBadge.textContent = versionBadge.dataset.version;
     versionBadge.setAttribute("aria-label", "Show last change date");
   }, 5000);
 }
@@ -2025,6 +2105,8 @@ function getColumnCalculationNote(key, label) {
 }
 
 function renderTable(projection) {
+  tableWrap.hidden = !uiState.showTable;
+  if (!uiState.showTable) return;
   const columns = getTableColumns();
 
   const headRow = document.createElement("tr");
@@ -2295,6 +2377,13 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, fre
     lx += w;
   });
 
+  // ── Event stars ───────────────────────────────────────────────────────────
+  projection.rows.forEach((row, index) => {
+    if (row.eventTitles?.length) {
+      drawEventStar(ctx, xFor(index), pad.top + plotHeight - 12);
+    }
+  });
+
   // ── Hover tooltip ────────────────────────────────────────────────────────
   if (hoverX === null || projection.rows.length < 2) return;
 
@@ -2332,11 +2421,40 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, fre
   }
   const total = d.spending.reduce((s, seg) => s + seg.v, 0) + d.surplus + (freeOnly ? 0 : d.tax);
   lines.push({ text: `Total: ${formatCurrency(total)}`, bold: true, sep: true });
+  if (row.eventTitles?.length) row.eventTitles.forEach((t) => lines.push({ text: `★ ${t}`, color: "#fde047" }));
 
   drawChartTooltip(ctx, {
     x: hx, y: pad.top + 10, lines, width, padLeft: pad.left, padRight: pad.right,
     plotTop: pad.top, plotBottom: pad.top + plotHeight, cs,
   });
+}
+
+// ── Shared event-star renderer ─────────────────────────────────────────────
+// Draws a ★ marker at (cx, cy) with a contrasting glow ring.
+function drawEventStar(ctx, cx, cy) {
+  const spikes = 5, outerR = 6.5, innerR = 2.8;
+  ctx.save();
+  ctx.translate(cx, cy);
+  // Glow halo
+  ctx.beginPath();
+  ctx.arc(0, 0, outerR + 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fill();
+  // Star path
+  ctx.beginPath();
+  for (let i = 0; i < spikes * 2; i++) {
+    const r = i % 2 === 0 ? outerR : innerR;
+    const angle = (i * Math.PI) / spikes - Math.PI / 2;
+    if (i === 0) ctx.moveTo(Math.cos(angle) * r, Math.sin(angle) * r);
+    else ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "#fde047";      // bright yellow star
+  ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,0.6)";
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ── Shared tooltip renderer used by all three charts ───────────────────────
@@ -2422,37 +2540,27 @@ let _spendingChartState = null; // { projection, realTerms, monthly, freeOnly }
 function renderChart(projection) {
   _savingsChartProjection = projection;
   _spendingChartState = { projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, freeOnly: uiState.spendingChartFreeOnly };
-  _incomeChartState = { projection, mode: uiState.incomeChartMode };
+  _incomeChartState = { projection };
   potChartWrap.hidden = !uiState.showPotChart;
   incomeChartWrap.hidden = !uiState.showIncomeChart;
-  chartEmptyMessage.hidden = uiState.showPotChart || uiState.showIncomeChart;
+  spendingChartSection.hidden = !uiState.showSpendingChart;
+  chartEmptyMessage.hidden = uiState.showPotChart || uiState.showIncomeChart || uiState.showSpendingChart;
 
-  renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, freeOnly: uiState.spendingChartFreeOnly });
-  const captionParts = [];
-  if (uiState.spendingChartFreeOnly) captionParts.push("free cash only");
-  if (uiState.spendingChartMonthly) captionParts.push("monthly averages");
-  if (uiState.spendingChartReal) captionParts.push("today's money");
-  spendingChartCaption.textContent = captionParts.length ? `Showing ${captionParts.join(", ")}` : "Annual nominal values";
+  if (uiState.showSpendingChart) {
+    renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, freeOnly: uiState.spendingChartFreeOnly });
+    const captionParts = [];
+    if (uiState.spendingChartFreeOnly) captionParts.push("free cash only");
+    if (uiState.spendingChartMonthly) captionParts.push("monthly averages");
+    if (uiState.spendingChartReal) captionParts.push("today's money");
+    spendingChartCaption.textContent = captionParts.length ? `Showing ${captionParts.join(", ")}` : "Annual nominal values";
+  }
 
   if (uiState.showPotChart) {
-    renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection });
+    renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection, showPreRetirement: uiState.savingsShowPreRetirement });
   }
 
   if (uiState.showIncomeChart) {
-    if (uiState.incomeChartMode === "stacked") {
-      renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection });
-    } else {
-      renderChartCanvas({
-        canvas: incomeChartCanvas,
-        projection,
-        axisStep: 10000,
-        series: [
-          { key: "totalIncomeRequired", label: "Income needed", color: "#b45309" },
-          { key: "incomeTotal", label: "Income total", color: "#1d4ed8", dash: [7, 5] },
-        ],
-        minFloor: 0,
-      });
-    }
+    renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection });
   }
 }
 
@@ -2648,7 +2756,7 @@ function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback =
   });
 }
 
-function renderStackedSavingsChartCanvas({ canvas, projection, hoverX = null }) {
+function renderStackedSavingsChartCanvas({ canvas, projection, showPreRetirement = false, hoverX = null }) {
   if (!canvas.clientWidth) return;
 
   // Layers drawn bottom → top. Colours chosen for maximum differentiation.
@@ -2658,12 +2766,16 @@ function renderStackedSavingsChartCanvas({ canvas, projection, hoverX = null }) 
     { key: "isaSavingsLeft",      label: "ISA",             color: "#3b82f6", fill: "rgba(59,130,246,0.70)" },
     { key: "bankSavingsLeft",     label: "Bank savings",    color: "#a855f7", fill: "rgba(168,85,247,0.70)" },
   ];
-  if (projection.rows.some((r) => (r.partnerSavingsLeft || 0) > 0.5)) {
+  const allRows = showPreRetirement && projection.preRetirementRows?.length
+    ? [...projection.preRetirementRows, ...projection.rows]
+    : projection.rows;
+  const retirementSplitIndex = showPreRetirement ? (projection.preRetirementRows?.length ?? 0) : -1;
+  if (allRows.some((r) => (r.partnerSavingsLeft || 0) > 0.5)) {
     layers.push({ key: "partnerSavingsLeft", label: "Partner savings", color: "#f43f5e", fill: "rgba(244,63,94,0.70)" });
   }
 
-  const n = projection.rows.length;
-  const stackTotals = projection.rows.map((row) =>
+  const n = allRows.length;
+  const stackTotals = allRows.map((row) =>
     layers.reduce((sum, l) => sum + Math.max(0, row[l.key] || 0), 0)
   );
 
@@ -2720,7 +2832,7 @@ function renderStackedSavingsChartCanvas({ canvas, projection, hoverX = null }) 
   const allTops = []; // allTops[layerIndex][rowIndex] = cumulative top value
 
   layers.forEach((layer) => {
-    const tops = projection.rows.map((row, i) =>
+    const tops = allRows.map((row, i) =>
       baselines[i] + Math.max(0, row[layer.key] || 0)
     );
     allTops.push([...tops]);
@@ -2753,6 +2865,43 @@ function renderStackedSavingsChartCanvas({ canvas, projection, hoverX = null }) 
     tops.forEach((v, i) => { baselines[i] = v; });
   });
 
+  // Retirement divider line (only when showing pre-retirement)
+  if (retirementSplitIndex > 0 && retirementSplitIndex < n) {
+    const rx = xFor(retirementSplitIndex);
+    // Shaded overlay on pre-retirement side
+    ctx.save();
+    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    ctx.fillRect(pad.left, pad.top, rx - pad.left, plotHeight);
+    // Vertical dashed line
+    ctx.strokeStyle = "rgba(255,220,80,0.85)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(rx, pad.top);
+    ctx.lineTo(rx, pad.top + plotHeight);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // "RETIREMENT" label — badge style
+    const badgeText = `Retirement ${projection.retirementYear}`;
+    ctx.font = "bold 11px " + (cs.font.split("px ")[1] || "sans-serif");
+    const bw = ctx.measureText(badgeText).width + 16;
+    const bh = 20;
+    const bx = rx - bw / 2;
+    const by = pad.top + plotHeight - bh - 14;
+    ctx.fillStyle = "rgba(255,220,80,0.18)";
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 6); else ctx.rect(bx, by, bw, bh);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,220,80,0.7)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,220,80,1)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(badgeText, rx, by + bh / 2);
+    ctx.restore();
+  }
+
   // X-axis year labels
   const targetLabels = Math.max(4, Math.min(8, Math.floor(plotWidth / 90)));
   const yearStep = Math.max(1, Math.ceil((n - 1) / Math.max(1, targetLabels - 1)));
@@ -2763,7 +2912,7 @@ function renderStackedSavingsChartCanvas({ canvas, projection, hoverX = null }) 
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   yearLabelIdxs.forEach((ri) => {
-    const row = projection.rows[ri];
+    const row = allRows[ri];
     ctx.fillText(String(row.calendarYear), xFor(ri), height - 34);
     ctx.fillText(`(age ${row.age})`, xFor(ri), height - 18);
   });
@@ -2786,12 +2935,20 @@ function renderStackedSavingsChartCanvas({ canvas, projection, hoverX = null }) 
     lx += iw + 8;
   });
 
+  // ── Event stars across the full timeline ─────────────────────────────────
+  allRows.forEach((row, xi) => {
+    if (row.eventTitles?.length) {
+      drawEventStar(ctx, xFor(xi), pad.top + plotHeight - 12);
+    }
+  });
+
   // ── Hover tooltip ────────────────────────────────────────────────────────
   if (hoverX === null || n < 2) return;
 
   const clampedX = Math.max(pad.left, Math.min(width - pad.right, hoverX));
   const rowIndex = Math.min(n - 1, Math.max(0, Math.round(((clampedX - pad.left) / plotWidth) * (n - 1))));
-  const row = projection.rows[rowIndex];
+  const row = allRows[rowIndex];
+  const isPreRetirement = retirementSplitIndex > 0 && rowIndex < retirementSplitIndex;
   const hx = xFor(rowIndex);
 
   // Vertical hairline
@@ -2822,10 +2979,12 @@ function renderStackedSavingsChartCanvas({ canvas, projection, hoverX = null }) 
     dotBase = top;
   });
 
+  const phaseLabel = isPreRetirement ? "  · pre-retirement" : "";
   const lines = [
-    { text: `${row.calendarYear}  ·  age ${row.age}`, bold: true },
+    { text: `${row.calendarYear}  ·  age ${row.age}${phaseLabel}`, bold: true },
     ...layers.map((l) => ({ text: `${l.label}: ${formatCurrency(row[l.key] || 0)}`, dot: l.color })),
     { text: `Total: ${formatCurrency(stackTotals[rowIndex])}`, bold: true, sep: true },
+    ...(row.eventTitles?.length ? row.eventTitles.map((t) => ({ text: `★ ${t}`, color: "#fde047" })) : []),
   ];
 
   drawChartTooltip(ctx, {
@@ -2968,6 +3127,13 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
     legendX += itemWidth;
   });
 
+  // ── Event stars ───────────────────────────────────────────────────────────
+  projection.rows.forEach((row, index) => {
+    if (row.eventTitles?.length) {
+      drawEventStar(ctx, xFor(index), pad.top + plotHeight - 12);
+    }
+  });
+
   // ── Hover tooltip ────────────────────────────────────────────────────────
   if (hoverX === null || projection.rows.length < 2) return;
 
@@ -2996,6 +3162,7 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
       .map((src) => ({ text: `${src.label}: ${formatCurrency(row[src.key])}`, dot: src.color })),
     { text: `Income needed: ${formatCurrency(row[needSeries.key])}`, dot: needSeries.color, sep: true },
     { text: `Total income: ${formatCurrency(incomeTotal)}`, bold: true },
+    ...(row.eventTitles?.length ? row.eventTitles.map((t) => ({ text: `★ ${t}`, color: "#fde047" })) : []),
   ];
 
   drawChartTooltip(ctx, {
@@ -3748,6 +3915,14 @@ showPotChartToggle.addEventListener("change", () => {
   render();
 });
 
+savingsPreRetirementToggle.addEventListener("change", () => {
+  uiState.savingsShowPreRetirement = savingsPreRetirementToggle.checked;
+  saveUiState();
+  if (_savingsChartProjection && uiState.showPotChart) {
+    renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection, showPreRetirement: uiState.savingsShowPreRetirement });
+  }
+});
+
 // Savings chart hover tooltip
 potChartCanvas.addEventListener("mousemove", (e) => {
   if (!_savingsChartProjection || !uiState.showPotChart) return;
@@ -3755,48 +3930,25 @@ potChartCanvas.addEventListener("mousemove", (e) => {
   renderStackedSavingsChartCanvas({
     canvas: potChartCanvas,
     projection: _savingsChartProjection,
+    showPreRetirement: uiState.savingsShowPreRetirement,
     hoverX: e.clientX - rect.left,
   });
 });
 potChartCanvas.addEventListener("mouseleave", () => {
   if (!_savingsChartProjection || !uiState.showPotChart) return;
-  renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection });
+  renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection, showPreRetirement: uiState.savingsShowPreRetirement });
 });
 
 // Income chart hover tooltip
 incomeChartCanvas.addEventListener("mousemove", (e) => {
   if (!_incomeChartState || !uiState.showIncomeChart) return;
-  const { projection, mode } = _incomeChartState;
+  const { projection } = _incomeChartState;
   const rect = incomeChartCanvas.getBoundingClientRect();
-  const hoverX = e.clientX - rect.left;
-  if (mode === "stacked") {
-    renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection, hoverX });
-  } else {
-    renderChartCanvas({
-      canvas: incomeChartCanvas, projection, axisStep: 10000, hoverX,
-      series: [
-        { key: "totalIncomeRequired", label: "Income needed", color: "#b45309" },
-        { key: "incomeTotal", label: "Income total", color: "#1d4ed8", dash: [7, 5] },
-      ],
-      minFloor: 0,
-    });
-  }
+  renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection, hoverX: e.clientX - rect.left });
 });
 incomeChartCanvas.addEventListener("mouseleave", () => {
   if (!_incomeChartState || !uiState.showIncomeChart) return;
-  const { projection, mode } = _incomeChartState;
-  if (mode === "stacked") {
-    renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection });
-  } else {
-    renderChartCanvas({
-      canvas: incomeChartCanvas, projection, axisStep: 10000,
-      series: [
-        { key: "totalIncomeRequired", label: "Income needed", color: "#b45309" },
-        { key: "incomeTotal", label: "Income total", color: "#1d4ed8", dash: [7, 5] },
-      ],
-      minFloor: 0,
-    });
-  }
+  renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection: _incomeChartState.projection });
 });
 
 // Spending breakdown chart hover tooltip
@@ -3818,8 +3970,14 @@ showIncomeChartToggle.addEventListener("change", () => {
   render();
 });
 
-incomeChartModeSelect.addEventListener("change", () => {
-  uiState.incomeChartMode = incomeChartModeSelect.value;
+showSpendingChartToggle.addEventListener("change", () => {
+  uiState.showSpendingChart = showSpendingChartToggle.checked;
+  saveUiState();
+  render();
+});
+
+showTableToggle.addEventListener("change", () => {
+  uiState.showTable = showTableToggle.checked;
   saveUiState();
   render();
 });

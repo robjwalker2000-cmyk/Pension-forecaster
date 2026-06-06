@@ -14,7 +14,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.4</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.5</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme">✦</button>
               <div id="theme-panel" class="theme-panel" hidden>
                 <p class="theme-panel-title">Theme</p>
@@ -251,47 +251,48 @@
                 <div class="chart-controls" aria-label="Chart display options">
                   <label class="toggle inline-toggle"><span>Savings &amp; pot</span><input id="show-pot-chart-toggle" type="checkbox" /></label>
                   <label class="toggle inline-toggle"><span>Income</span><input id="show-income-chart-toggle" type="checkbox" /></label>
-                  <label class="chart-mode-control"><span>Income chart</span><select id="income-chart-mode-select"><option value="line">Line</option><option value="stacked">Stacked bars</option></select></label>
+                  <label class="toggle inline-toggle"><span>Spending</span><input id="show-spending-chart-toggle" type="checkbox" /></label>
                 </div>
               </div>
             </div>
             <div class="chart-stack">
-              <div class="chart-frame" id="pot-chart-wrap">
+              <div class="chart-frame" id="pot-chart-wrap" style="position:relative">
                 <canvas id="pot-chart" width="900" height="280"></canvas>
+                <label class="toggle inline-toggle savings-preretire-toggle" title="Show savings accumulation before retirement"><span>Pre-retirement</span><input id="savings-preretirement-toggle" type="checkbox" /></label>
               </div>
               <div class="chart-frame" id="income-chart-wrap">
                 <canvas id="income-chart" width="900" height="280"></canvas>
+              </div>
+              <div id="spending-chart-section">
+                <div class="chart-sub-heading">
+                  <span class="chart-sub-title">Spending Breakdown</span>
+                  <div class="chart-sub-controls">
+                    <p id="spending-chart-caption"></p>
+                    <label class="toggle inline-toggle"><span>Free cash only</span><input id="spending-chart-free-toggle" type="checkbox" /></label>
+                    <label class="toggle inline-toggle"><span>Monthly</span><input id="spending-chart-monthly-toggle" type="checkbox" /></label>
+                    <label class="toggle inline-toggle"><span>Today's money</span><input id="spending-chart-real-toggle" type="checkbox" /></label>
+                  </div>
+                </div>
+                <div class="chart-frame" id="spending-chart-wrap">
+                  <canvas id="spending-chart" width="900" height="280"></canvas>
+                </div>
               </div>
             </div>
             <p class="empty-chart-message" id="chart-empty-message" hidden>No charts selected.</p>
           </section>
 
-          <section class="panel chart-panel">
-            <div class="panel-heading">
-              <h2>Spending Breakdown</h2>
-              <div class="chart-heading-actions">
-                <p id="spending-chart-caption"></p>
-                <label class="toggle inline-toggle"><span>Free cash only</span><input id="spending-chart-free-toggle" type="checkbox" /></label>
-                <label class="toggle inline-toggle"><span>Monthly</span><input id="spending-chart-monthly-toggle" type="checkbox" /></label>
-                <label class="toggle inline-toggle"><span>Today's money</span><input id="spending-chart-real-toggle" type="checkbox" /></label>
-              </div>
-            </div>
-            <div class="chart-frame" id="spending-chart-wrap">
-              <canvas id="spending-chart" width="900" height="280"></canvas>
-            </div>
-          </section>
-
-          <section class="panel table-panel">
+          <section class="panel table-panel" id="table-section">
             <div class="panel-heading">
               <div class="table-title-actions">
                 <button id="toggle-table-width-button" class="icon-button" type="button" aria-label="Expand table width" title="Expand table width">+</button>
                 <h2>Year-by-Year Projection</h2>
-              </div>
-              <div class="table-heading-actions">
                 <p id="table-caption"></p>
               </div>
+              <div class="table-heading-actions">
+                <label class="toggle inline-toggle"><span>Detailed Breakdown Table</span><input id="show-table-toggle" type="checkbox" /></label>
+              </div>
             </div>
-            <div class="table-wrap">
+            <div class="table-wrap" id="table-wrap">
               <table>
                 <thead id="projection-head"></thead>
                 <tbody id="projection-body"></tbody>

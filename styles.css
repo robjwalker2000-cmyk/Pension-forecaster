@@ -655,6 +655,38 @@ select option {
   cursor: crosshair;
 }
 
+.chart-sub-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 4px 6px;
+  flex-wrap: wrap;
+}
+.chart-sub-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.chart-sub-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.savings-preretire-toggle {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  font-size: 11px;
+  opacity: 0.75;
+  z-index: 2;
+  pointer-events: auto;
+}
+.savings-preretire-toggle:hover { opacity: 1; }
+
 .empty-chart-message {
   margin: 0;
   padding: 28px;

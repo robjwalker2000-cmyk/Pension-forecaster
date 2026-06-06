@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(node --check /Users/rob/Documents/GitHub/Mini/Pension-forecaster/app.js)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(node --input-type=module)"
     ]
   }
 }
