@@ -14,7 +14,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.3</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.4</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme">✦</button>
               <div id="theme-panel" class="theme-panel" hidden>
                 <p class="theme-panel-title">Theme</p>
@@ -249,7 +249,7 @@
               <div class="chart-heading-actions">
                 <p id="chart-caption"></p>
                 <div class="chart-controls" aria-label="Chart display options">
-                  <label class="toggle inline-toggle"><span>Pension pot</span><input id="show-pot-chart-toggle" type="checkbox" /></label>
+                  <label class="toggle inline-toggle"><span>Savings &amp; pot</span><input id="show-pot-chart-toggle" type="checkbox" /></label>
                   <label class="toggle inline-toggle"><span>Income</span><input id="show-income-chart-toggle" type="checkbox" /></label>
                   <label class="chart-mode-control"><span>Income chart</span><select id="income-chart-mode-select"><option value="line">Line</option><option value="stacked">Stacked bars</option></select></label>
                 </div>
@@ -297,6 +297,18 @@
                 <tbody id="projection-body"></tbody>
               </table>
             </div>
+          </section>
+
+          <section class="panel events-panel" id="special-events-panel">
+            <div class="panel-heading">
+              <h2>Special Events</h2>
+              <div class="events-heading-actions">
+                <button id="add-event-button" class="button secondary" type="button">Add event</button>
+                <button id="clear-events-button" class="button secondary" type="button">Clear all</button>
+              </div>
+            </div>
+            <div id="special-events-list" class="events-list"></div>
+            <p id="special-events-empty" class="events-empty-message">No special events. Use Add event to model one-off income or expenses.</p>
           </section>
         </section>
       </main>

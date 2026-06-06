@@ -652,6 +652,7 @@ select option {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
+  cursor: crosshair;
 }
 
 .empty-chart-message {
@@ -969,25 +970,40 @@ tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
 }
 
 .theme-settings-button {
-  width: 36px;
-  height: 36px;
+  width: 22px;
+  height: 22px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
-  border: 1px solid rgba(0, 212, 184, 0.35);
-  background: rgba(0, 212, 184, 0.1);
-  color: var(--accent);
+  border: none;
+  /* Layer order (top → bottom):
+     1. top-left gloss highlight
+     2. bottom-right shadow vignette
+     3. central white core (gives the "lit from inside" bloom)
+     4. conic rainbow base */
+  background:
+    radial-gradient(circle at 35% 32%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 55%),
+    radial-gradient(circle at 68% 72%, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 55%),
+    radial-gradient(circle at 50% 50%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 48%),
+    conic-gradient(
+      hsl(0,100%,60%), hsl(30,100%,60%), hsl(60,100%,60%),
+      hsl(90,100%,60%), hsl(120,100%,60%), hsl(150,100%,60%),
+      hsl(180,100%,60%), hsl(210,100%,60%), hsl(240,100%,60%),
+      hsl(270,100%,60%), hsl(300,100%,60%), hsl(330,100%,60%),
+      hsl(360,100%,60%)
+    );
+  box-shadow: 0 1px 4px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,255,255,0.4);
+  color: transparent; /* hide the ✦ glyph — the sphere is the icon now */
   cursor: pointer;
-  font-size: 1.05rem;
+  font-size: 0.55rem;
   line-height: 1;
-  transition: background 0.2s, box-shadow 0.2s, transform 0.35s;
+  transition: box-shadow 0.2s, transform 0.6s;
   flex-shrink: 0;
 }
 
 .theme-settings-button:hover {
-  background: rgba(0, 212, 184, 0.2);
-  box-shadow: 0 0 18px rgba(0, 212, 184, 0.35);
-  transform: rotate(90deg);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.4), 0 0 16px rgba(255,255,255,0.2), inset 0 1px 1px rgba(255,255,255,0.4);
+  transform: rotate(180deg);
 }
 
 .theme-panel {
@@ -1204,8 +1220,7 @@ html[data-theme="original"] .summary-card::after {
   background: radial-gradient(circle, rgba(15, 118, 110, 0.06), transparent 70%);
 }
 
-html[data-theme="original"] .version-badge,
-html[data-theme="original"] .theme-settings-button {
+html[data-theme="original"] .version-badge {
   background: rgba(255, 253, 249, 0.9);
   border-color: rgba(66, 50, 28, 0.22);
   color: #0f766e;
@@ -1382,8 +1397,7 @@ html[data-theme="metallic"] .toggle {
 }
 
 /* Version badge */
-html[data-theme="metallic"] .version-badge,
-html[data-theme="metallic"] .theme-settings-button {
+html[data-theme="metallic"] .version-badge {
   background: rgba(90, 96, 108, 0.5);
   border-color: rgba(220, 228, 245, 0.3);
   color: #c8d4e8;
@@ -1496,6 +1510,80 @@ html[data-theme="metallic"] .growth-rate-grid label.growth-scenario-selected inp
   width: 100%;
   text-align: center;
   white-space: nowrap;
+}
+
+/* ─── Special Events panel ─── */
+
+.events-heading-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.events-list {
+  overflow-x: auto;
+  margin-top: 4px;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: 116px 72px 100px 110px 100px 80px 1fr 68px;
+  gap: 8px;
+  align-items: center;
+  min-width: 760px;
+  padding: 5px 0;
+}
+
+.event-row + .event-row {
+  border-top: 1px solid var(--line);
+}
+
+.event-row-header {
+  border-bottom: 1px solid var(--line-strong);
+  padding-bottom: 8px;
+  margin-bottom: 2px;
+}
+
+.event-row-header span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.event-check-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: var(--muted);
+  user-select: none;
+}
+
+.event-check-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.event-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.events-empty-message {
+  margin: 12px 0 0;
+  padding: 20px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.88rem;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 /* Print */

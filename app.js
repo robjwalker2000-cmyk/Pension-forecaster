@@ -89,6 +89,7 @@ const DEFAULT_STATE = {
   forceTflsTaxablePairing: false,
   regularDrawdownAmount: 12000,
   regularDrawdownYears: 15,
+  specialEvents: [],
 };
 
 const CURRENCY = new Intl.NumberFormat("en-GB", {
@@ -286,6 +287,16 @@ function normaliseState(source, changedKey = null) {
   next.taxBandCpiStartYear = Math.round(Number(next.taxBandCpiStartYear) || next.currentYear);
   next.yearOneTflsMode = next.yearOneTflsMode === "defined" ? "defined" : "full";
   next.yearOneTflsAmount = Math.max(0, Number(next.yearOneTflsAmount) || 0);
+  next.specialEvents = Array.isArray(next.specialEvents) ? next.specialEvents.map((ev) => ({
+    id: ev.id || (`evt_${Date.now()}_${Math.random()}`),
+    yearType: ["relative", "absolute"].includes(ev.yearType) ? ev.yearType : "relative",
+    year: Math.max(1, Math.round(Number(ev.year) || 1)),
+    type: ["expense", "income"].includes(ev.type) ? ev.type : "expense",
+    amount: Math.max(0, Number(ev.amount) || 0),
+    taxable: Boolean(ev.taxable),
+    routing: ["drawdown", "savings"].includes(ev.routing) ? ev.routing : "drawdown",
+    title: String(ev.title || ""),
+  })) : [];
   return next;
 }
 
@@ -821,7 +832,25 @@ function calculateProjection(source) {
       && (yearIndex - source.carStartYear) % source.carFrequencyYears === 0
         ? source.carCost
         : 0;
-    const totalIncomeRequired = incomeRequired + carCost;
+    const eventsThisYear = (source.specialEvents || []).filter((ev) =>
+      ev.yearType === "relative" ? yearIndex === Number(ev.year) : calendarYear === Number(ev.year)
+    );
+    const exceptionalExpense = eventsThisYear
+      .filter((ev) => ev.type === "expense" && ev.routing !== "savings")
+      .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
+    const exceptionalNonTaxableIncome = eventsThisYear
+      .filter((ev) => ev.type === "income" && !ev.taxable && ev.routing !== "savings")
+      .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
+    const exceptionalTaxableIncome = eventsThisYear
+      .filter((ev) => ev.type === "income" && ev.taxable && ev.routing !== "savings")
+      .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
+    const exceptionalSavingsIncome = eventsThisYear
+      .filter((ev) => ev.type === "income" && ev.routing === "savings")
+      .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
+    const exceptionalSavingsExpense = eventsThisYear
+      .filter((ev) => ev.type === "expense" && ev.routing === "savings")
+      .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
+    const totalIncomeRequired = incomeRequired + carCost + exceptionalExpense;
 
     const partnerWorkIncome =
       partnerDetailsEnabled && partnerAge < 68
@@ -853,12 +882,12 @@ function calculateProjection(source) {
     const lumpSumAllowanceAfterDefinedBenefit = Math.max(0, remainingLumpSumAllowance - definedBenefitLumpSum);
 
     const partnerIncome = partnerWorkIncome;
-    const myOtherIncome = ownStatePension + definedBenefitIncome;
+    const myOtherIncome = ownStatePension + definedBenefitIncome + exceptionalTaxableIncome;
     const regularDrawdown =
       source.regularDrawdownEnabled && yearIndex <= source.regularDrawdownYears
         ? source.regularDrawdownAmount
         : 0;
-    const baseIncomeTotal = partnerWorkIncome + partnerStatePension + partnerWorkPension + myOtherIncome;
+    const baseIncomeTotal = partnerWorkIncome + partnerStatePension + partnerWorkPension + myOtherIncome + exceptionalNonTaxableIncome;
     const pensionNeededGross = Math.max(0, totalIncomeRequired - baseIncomeTotal - definedBenefitLumpSum);
     const allowanceBase = compoundAnnual(UK_TAX_RULES.personalAllowance, source.taxAllowanceCpiRate, yearIndex, source.applyTaxAllowanceCpi);
     const taxRules = taxRulesForYear(source, calendarYear);
@@ -1123,6 +1152,14 @@ function calculateProjection(source) {
     premiumBondsBalance = Math.min(premiumBondsBeforeLimit, UK_TAX_RULES.premiumBondsLimit);
     isaSavingsBalance = Math.max(0, isaSavingsBalance + isaInterestGross + premiumBondsMovedToIsa - savingsAllocation.isaSavingsUsed);
     partnerSavingsBalance = Math.max(0, partnerSavingsBalance + (partnerSavingsBalance * source.partnerSavingsGrowthRate) - savingsAllocation.partnerSavingsUsed);
+    bankSavingsBalance = Math.max(0, bankSavingsBalance + exceptionalSavingsIncome);
+    if (exceptionalSavingsExpense > 0) {
+      const savingsExpAlloc = allocateSavingsWithdrawal(exceptionalSavingsExpense, bankSavingsBalance, premiumBondsBalance, isaSavingsBalance, partnerSavingsBalance);
+      bankSavingsBalance = Math.max(0, bankSavingsBalance - savingsExpAlloc.bankSavingsUsed);
+      premiumBondsBalance = Math.max(0, premiumBondsBalance - savingsExpAlloc.premiumBondsUsed);
+      isaSavingsBalance = Math.max(0, isaSavingsBalance - savingsExpAlloc.isaSavingsUsed);
+      partnerSavingsBalance = Math.max(0, partnerSavingsBalance - savingsExpAlloc.partnerSavingsUsed);
+    }
     savingsBalance = bankSavingsBalance + premiumBondsBalance + isaSavingsBalance + partnerSavingsBalance;
 
     if (depletionYear === null && totalPotAfterGrowth < 0.01) {
@@ -1212,6 +1249,11 @@ function calculateProjection(source) {
       premiumBondsLeft: premiumBondsBalance,
       partnerSavingsLeft: partnerSavingsBalance,
       taxableDrawdownDesignated: extraDesignationForTaxable,
+      exceptionalExpense,
+      exceptionalNonTaxableIncome,
+      exceptionalTaxableIncome,
+      exceptionalSavingsIncome,
+      exceptionalSavingsExpense,
     });
 
     uncrystallisedPot = uncrystallisedAfterGrowth;
@@ -1263,8 +1305,149 @@ function render() {
   saveState();
 }
 
+function renderProjectionOnly() {
+  const projection = calculateProjection(state);
+  renderSummary(projection);
+  renderCustomFieldChooser();
+  renderTable(projection);
+  renderChart(projection);
+  saveState();
+}
+
+function renderSpecialEventsPanel() {
+  const list = document.getElementById("special-events-list");
+  const empty = document.getElementById("special-events-empty");
+  const events = state.specialEvents || [];
+
+  empty.hidden = events.length > 0;
+
+  if (events.length === 0) {
+    list.replaceChildren();
+    return;
+  }
+
+  const header = document.createElement("div");
+  header.className = "event-row event-row-header";
+  ["Year type", "Year", "Type", "Amount", "Routing", "Taxable", "Title / note", ""].forEach((text) => {
+    const span = document.createElement("span");
+    span.textContent = text;
+    header.appendChild(span);
+  });
+
+  const rows = events.map((ev, i) => {
+    const row = document.createElement("div");
+    row.className = "event-row";
+    row.dataset.eventIndex = i;
+
+    const yearTypeSelect = document.createElement("select");
+    yearTypeSelect.dataset.eventField = "yearType";
+    [["relative", "Relative yr"], ["absolute", "Absolute yr"]].forEach(([val, label]) => {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = label;
+      if (ev.yearType === val) opt.selected = true;
+      yearTypeSelect.appendChild(opt);
+    });
+
+    const yearInput = document.createElement("input");
+    yearInput.type = "number";
+    yearInput.min = "1";
+    yearInput.step = "1";
+    yearInput.value = ev.year;
+    yearInput.dataset.eventField = "year";
+
+    const typeSelect = document.createElement("select");
+    typeSelect.dataset.eventField = "type";
+    [["expense", "Expense"], ["income", "Income"]].forEach(([val, label]) => {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = label;
+      if (ev.type === val) opt.selected = true;
+      typeSelect.appendChild(opt);
+    });
+
+    const amountInput = document.createElement("input");
+    amountInput.type = "text";
+    amountInput.inputMode = "numeric";
+    amountInput.min = "0";
+    amountInput.step = "1000";
+    amountInput.value = ev.amount > 0 ? formatCurrency(ev.amount) : "";
+    amountInput.dataset.eventField = "amount";
+    amountInput.addEventListener("focus", () => {
+      amountInput.value = String(amountInput.value).replace(/,/g, "");
+    });
+    amountInput.addEventListener("blur", () => {
+      const n = Number(String(amountInput.value).replace(/,/g, ""));
+      if (Number.isFinite(n) && n > 0) amountInput.value = formatCurrency(n);
+    });
+
+    const routingSelect = document.createElement("select");
+    routingSelect.dataset.eventField = "routing";
+    [["drawdown", "Via pot"], ["savings", "Via savings"]].forEach(([val, label]) => {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = label;
+      if ((ev.routing || "drawdown") === val) opt.selected = true;
+      routingSelect.appendChild(opt);
+    });
+
+    const taxableLabel = document.createElement("label");
+    taxableLabel.className = "event-check-label";
+    const taxableCheck = document.createElement("input");
+    taxableCheck.type = "checkbox";
+    taxableCheck.checked = Boolean(ev.taxable);
+    taxableCheck.dataset.eventField = "taxable";
+    const taxableSpan = document.createElement("span");
+    taxableSpan.textContent = "Taxable";
+    taxableLabel.append(taxableCheck, taxableSpan);
+
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.value = ev.title || "";
+    titleInput.placeholder = "Optional note";
+    titleInput.dataset.eventField = "title";
+
+    const actions = document.createElement("div");
+    actions.className = "event-actions";
+
+    const dupBtn = document.createElement("button");
+    dupBtn.className = "icon-button";
+    dupBtn.type = "button";
+    dupBtn.dataset.eventAction = "duplicate";
+    dupBtn.dataset.eventIndex = i;
+    dupBtn.title = "Duplicate event";
+    dupBtn.setAttribute("aria-label", "Duplicate event");
+    dupBtn.textContent = "⧉";
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "icon-button";
+    delBtn.type = "button";
+    delBtn.dataset.eventAction = "delete";
+    delBtn.dataset.eventIndex = i;
+    delBtn.title = "Delete event";
+    delBtn.setAttribute("aria-label", "Delete event");
+    delBtn.textContent = "×";
+
+    actions.append(dupBtn, delBtn);
+    row.append(yearTypeSelect, yearInput, typeSelect, amountInput, routingSelect, taxableLabel, titleInput, actions);
+    return row;
+  });
+
+  list.replaceChildren(header, ...rows);
+}
+
 function isPercentInput(input) {
   return input.dataset.format === "percent-1";
+}
+
+function isCurrencyInput(input) {
+  return !isPercentInput(input) && Number(input.step) >= 500;
+}
+
+function formatCurrency(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return n.toLocaleString("en-GB", { maximumFractionDigits: 0 });
 }
 
 function formatInputValue(input, value) {
@@ -1274,6 +1457,9 @@ function formatInputValue(input, value) {
   if (isPercentInput(input)) {
     return (Number(value) * 100).toFixed(1);
   }
+  if (isCurrencyInput(input)) {
+    return formatCurrency(value);
+  }
   return value;
 }
 
@@ -1281,7 +1467,9 @@ function parseInputValue(input, fallbackValue) {
   if (input.value === "") {
     return fallbackValue;
   }
-  const numericValue = Number(input.value);
+  // Strip thousand separators before parsing
+  const raw = String(input.value).replace(/,/g, "");
+  const numericValue = Number(raw);
   if (!Number.isFinite(numericValue)) {
     return fallbackValue;
   }
@@ -1621,6 +1809,11 @@ function getTableColumnSets() {
   ];
   const customOnlyColumns = [
     ["incomeCovered", "Income covered"],
+    ["exceptionalExpense", "Exceptional expense"],
+    ["exceptionalNonTaxableIncome", "Exceptional non-taxable income"],
+    ["exceptionalTaxableIncome", "Exceptional taxable income"],
+    ["exceptionalSavingsIncome", "Exceptional income into savings"],
+    ["exceptionalSavingsExpense", "Exceptional expense from savings"],
   ];
   const granularColumns = [
     ...granularBaseColumnsWithoutCrystallisation,
@@ -1740,7 +1933,7 @@ function closeBasicSetup() {
 }
 
 function showVersionChangeDate() {
-  const versionText = "Version 3.2";
+  const versionText = "Version 3.4";
   versionBadge.textContent = "Changed 2026-06-01 18:58 BST";
   versionBadge.setAttribute("aria-label", versionBadge.textContent);
   clearTimeout(versionBadgeTimeout);
@@ -1822,6 +2015,11 @@ function getColumnCalculationNote(key, label) {
     newlyCrystallised: 'TFLS crystallisation only: TFLS taken x 4, capped by available uncrystallised funds.',
     taxableDrawdownDesignated: 'Extra uncrystallised funds crystallised first so taxable pension drawdown can be paid when linked TFLS is unavailable or already exhausted.',
     crystallisedFundLeft: 'Crystallised fund still available after withdrawals and growth.',
+    exceptionalExpense: 'One-off expenses from special events in this year, added to gross income required.',
+    exceptionalNonTaxableIncome: 'One-off non-taxable income from special events in this year, offsetting the amount needed from the pension.',
+    exceptionalTaxableIncome: 'One-off taxable income from special events in this year, added to your taxable income and reducing the amount needed from the pension.',
+    exceptionalSavingsIncome: 'One-off income routed directly into bank savings, bypassing the drawdown mechanism.',
+    exceptionalSavingsExpense: 'One-off expense drawn directly from savings (bank first, then Premium Bonds, ISA, partner), bypassing the drawdown mechanism.',
   };
   return `${label}: ${notes[key] || 'See projection logic for this column.'}`;
 }
@@ -1915,7 +2113,7 @@ function makeHatchPattern(ctx, color) {
   return ctx.createPattern(pc, "repeat");
 }
 
-function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, freeOnly }) {
+function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, freeOnly, hoverX = null }) {
   const cs = getChartStyle();
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
@@ -2096,9 +2294,135 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, fre
     ctx.fillText(src.label, lx + 24, ly);
     lx += w;
   });
+
+  // ── Hover tooltip ────────────────────────────────────────────────────────
+  if (hoverX === null || projection.rows.length < 2) return;
+
+  const clampedX = Math.max(pad.left, Math.min(width - pad.right, hoverX));
+  const rowIndex = Math.min(projection.rows.length - 1, Math.max(0, Math.floor((clampedX - pad.left) / barBand)));
+  const row = projection.rows[rowIndex];
+  const d = rowData[rowIndex];
+  const hx = xFor(rowIndex);
+
+  // Vertical hairline through bar centre
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(hx, pad.top);
+  ctx.lineTo(hx, pad.top + plotHeight);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const lines = [
+    { text: `${row.calendarYear}  ·  age ${row.age}`, bold: true },
+  ];
+  if (!freeOnly) {
+    d.spending.forEach((seg) => {
+      if (seg.v > 0.01) lines.push({ text: `${seg.label}: ${formatCurrency(seg.v)}`, dot: seg.color });
+    });
+  }
+  if (d.surplus > 0.01) {
+    lines.push({ text: `Free cash: ${formatCurrency(d.surplus)}`, dot: "#8b5cf6" });
+  } else if (d.shortfall < -0.01) {
+    lines.push({ text: `Shortfall: ${formatCurrency(Math.abs(d.shortfall))}`, dot: "#ef4444" });
+  }
+  if (!freeOnly && d.tax > 0.01) {
+    lines.push({ text: `Tax: ${formatCurrency(d.tax)}`, dot: "#ef4444" });
+  }
+  const total = d.spending.reduce((s, seg) => s + seg.v, 0) + d.surplus + (freeOnly ? 0 : d.tax);
+  lines.push({ text: `Total: ${formatCurrency(total)}`, bold: true, sep: true });
+
+  drawChartTooltip(ctx, {
+    x: hx, y: pad.top + 10, lines, width, padLeft: pad.left, padRight: pad.right,
+    plotTop: pad.top, plotBottom: pad.top + plotHeight, cs,
+  });
 }
 
+// ── Shared tooltip renderer used by all three charts ───────────────────────
+// lines: [{ text, bold, color, dot }]  dot = stroke color | null
+function drawChartTooltip(ctx, { x: hx, y: ty, lines, width, padLeft, padRight, plotTop, plotBottom, cs }) {
+  const ttFont = cs.font;
+  const ttBold = ttFont.replace("12px", "bold 12px");
+  const lineH = 19;
+  const dotColW = 14;
+  const ttPadX = 12;
+  const ttPadY = 10;
+
+  ctx.font = ttFont;
+  const maxTextW = Math.max(...lines.map((l) => {
+    ctx.font = l.bold ? ttBold : ttFont;
+    return ctx.measureText(l.text).width;
+  }));
+  const ttW = maxTextW + dotColW + ttPadX * 2;
+  const ttH = lines.length * lineH + ttPadY * 2;
+
+  let tx = hx + 16;
+  if (tx + ttW > width - padRight + 10) tx = hx - ttW - 16;
+  let tyAdj = ty;
+  if (tyAdj + ttH > plotBottom) tyAdj = plotBottom - ttH - 4;
+  if (tyAdj < plotTop) tyAdj = plotTop;
+
+  // Background
+  const r = 8;
+  ctx.beginPath();
+  ctx.moveTo(tx + r, tyAdj);
+  ctx.lineTo(tx + ttW - r, tyAdj);
+  ctx.arcTo(tx + ttW, tyAdj, tx + ttW, tyAdj + r, r);
+  ctx.lineTo(tx + ttW, tyAdj + ttH - r);
+  ctx.arcTo(tx + ttW, tyAdj + ttH, tx + ttW - r, tyAdj + ttH, r);
+  ctx.lineTo(tx + r, tyAdj + ttH);
+  ctx.arcTo(tx, tyAdj + ttH, tx, tyAdj + ttH - r, r);
+  ctx.lineTo(tx, tyAdj + r);
+  ctx.arcTo(tx, tyAdj, tx + r, tyAdj, r);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(8,12,24,0.94)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  lines.forEach((line, i) => {
+    const lineY = tyAdj + ttPadY + i * lineH + lineH / 2;
+    const textX = tx + ttPadX + dotColW;
+
+    // Separator before last line (total)
+    if (line.sep) {
+      ctx.strokeStyle = "rgba(255,255,255,0.1)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tx + 6, lineY - lineH / 2 - 1);
+      ctx.lineTo(tx + ttW - 6, lineY - lineH / 2 - 1);
+      ctx.stroke();
+    }
+
+    if (line.dot) {
+      ctx.beginPath();
+      ctx.arc(tx + ttPadX + 5, lineY, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = line.dot;
+      ctx.fill();
+    }
+
+    ctx.font = line.bold ? ttBold : ttFont;
+    // Tooltip BG is always near-black — use fixed light colours regardless of theme
+    const ttPrimary = "#e8edf8";
+    const ttMuted = "rgba(180,195,220,0.9)";
+    ctx.fillStyle = line.color || (line.bold ? ttPrimary : ttMuted);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(line.text, textX, lineY);
+  });
+}
+
+// Last-render state for each canvas — lets mouse events re-render with hoverX
+let _savingsChartProjection = null;
+let _incomeChartState = null;   // { projection, mode, series, axisStep }
+let _spendingChartState = null; // { projection, realTerms, monthly, freeOnly }
+
 function renderChart(projection) {
+  _savingsChartProjection = projection;
+  _spendingChartState = { projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, freeOnly: uiState.spendingChartFreeOnly };
+  _incomeChartState = { projection, mode: uiState.incomeChartMode };
   potChartWrap.hidden = !uiState.showPotChart;
   incomeChartWrap.hidden = !uiState.showIncomeChart;
   chartEmptyMessage.hidden = uiState.showPotChart || uiState.showIncomeChart;
@@ -2111,15 +2435,7 @@ function renderChart(projection) {
   spendingChartCaption.textContent = captionParts.length ? `Showing ${captionParts.join(", ")}` : "Annual nominal values";
 
   if (uiState.showPotChart) {
-    renderChartCanvas({
-      canvas: potChartCanvas,
-      projection,
-      axisStep: 100000,
-      series: [
-        { key: "totalPotAfterGrowth", label: "Pension pot", color: "#0f766e", fill: "rgba(15, 118, 110, 0.16)" },
-      ],
-      maxFallback: projection.totalRetirementPot,
-    });
+    renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection });
   }
 
   if (uiState.showIncomeChart) {
@@ -2151,7 +2467,7 @@ function getChartStyle() {
   };
 }
 
-function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback = 0, minFloor = null }) {
+function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback = 0, minFloor = null, hoverX = null }) {
   const cs = getChartStyle();
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
@@ -2291,9 +2607,234 @@ function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback =
     ctx.fillText(item.label, legendX + 28, legendY);
     legendX += itemWidth;
   });
+
+  // ── Hover tooltip ────────────────────────────────────────────────────────
+  if (hoverX === null || projection.rows.length < 2) return;
+
+  const n = projection.rows.length;
+  const clampedX = Math.max(pad.left, Math.min(width - pad.right, hoverX));
+  const rowIndex = Math.min(n - 1, Math.max(0, Math.round(((clampedX - pad.left) / plotWidth) * (n - 1))));
+  const row = projection.rows[rowIndex];
+  const hx = xFor(rowIndex);
+
+  // Hairline + dots on each series
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(hx, pad.top);
+  ctx.lineTo(hx, pad.top + plotHeight);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  series.forEach((s) => {
+    ctx.beginPath();
+    ctx.arc(hx, yFor(row[s.key]), 5, 0, Math.PI * 2);
+    ctx.fillStyle = s.color;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+
+  const lines = [
+    { text: `${row.calendarYear}  ·  age ${row.age}`, bold: true },
+    ...series.map((s) => ({ text: `${s.label}: ${formatCurrency(row[s.key])}`, dot: s.color })),
+  ];
+
+  drawChartTooltip(ctx, {
+    x: hx, y: pad.top + 10, lines, width, padLeft: pad.left, padRight: pad.right,
+    plotTop: pad.top, plotBottom: pad.top + plotHeight, cs,
+  });
 }
 
-function renderStackedIncomeChartCanvas({ canvas, projection }) {
+function renderStackedSavingsChartCanvas({ canvas, projection, hoverX = null }) {
+  if (!canvas.clientWidth) return;
+
+  // Layers drawn bottom → top. Colours chosen for maximum differentiation.
+  const layers = [
+    { key: "totalPotAfterGrowth", label: "Pension pot",     color: "#10b981", fill: "rgba(16,185,129,0.72)" },
+    { key: "premiumBondsLeft",    label: "Premium Bonds",   color: "#f59e0b", fill: "rgba(245,158,11,0.70)" },
+    { key: "isaSavingsLeft",      label: "ISA",             color: "#3b82f6", fill: "rgba(59,130,246,0.70)" },
+    { key: "bankSavingsLeft",     label: "Bank savings",    color: "#a855f7", fill: "rgba(168,85,247,0.70)" },
+  ];
+  if (projection.rows.some((r) => (r.partnerSavingsLeft || 0) > 0.5)) {
+    layers.push({ key: "partnerSavingsLeft", label: "Partner savings", color: "#f43f5e", fill: "rgba(244,63,94,0.70)" });
+  }
+
+  const n = projection.rows.length;
+  const stackTotals = projection.rows.map((row) =>
+    layers.reduce((sum, l) => sum + Math.max(0, row[l.key] || 0), 0)
+  );
+
+  const cs = getChartStyle();
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight || canvas.height;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const pad = { top: 60, right: 22, bottom: 56, left: 70 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const axisStep = 100000;
+  const rawMax = Math.max(...stackTotals, projection.totalRetirementPot || 0);
+  const maxValue = Math.max(axisStep, Math.ceil(rawMax / axisStep) * axisStep);
+
+  const xFor = (i) => pad.left + (n === 1 ? 0 : (i / (n - 1)) * plotWidth);
+  // valueToY — a thin band gets a guaranteed minimum 3px height so it's always visible
+  const yFor = (v) => pad.top + plotHeight - (Math.max(0, v) / maxValue) * plotHeight;
+  const yForBand = (base, top) => {
+    const rawBase = yFor(base);
+    const rawTop = yFor(top);
+    const minPx = 3;
+    if (top <= base) return { yTop: rawBase, yBase: rawBase };
+    const diff = rawBase - rawTop;
+    if (diff < minPx) {
+      return { yTop: rawBase - minPx, yBase: rawBase };
+    }
+    return { yTop: rawTop, yBase: rawBase };
+  };
+
+  // Grid + Y labels
+  ctx.font = cs.font;
+  for (let v = 0; v <= maxValue; v += axisStep) {
+    const y = yFor(v);
+    ctx.strokeStyle = cs.gridColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(width - pad.right, y);
+    ctx.stroke();
+    ctx.fillStyle = cs.labelColor;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(formatCurrency(v), 8, y);
+  }
+
+  // Draw stacked area layers + capture per-row tops for tooltip/dots
+  const baselines = new Array(n).fill(0);
+  const allTops = []; // allTops[layerIndex][rowIndex] = cumulative top value
+
+  layers.forEach((layer) => {
+    const tops = projection.rows.map((row, i) =>
+      baselines[i] + Math.max(0, row[layer.key] || 0)
+    );
+    allTops.push([...tops]);
+
+    // Filled polygon
+    ctx.beginPath();
+    tops.forEach((v, i) => {
+      const { yTop } = yForBand(baselines[i], v);
+      if (i === 0) ctx.moveTo(xFor(i), yTop); else ctx.lineTo(xFor(i), yTop);
+    });
+    for (let i = n - 1; i >= 0; i--) {
+      const { yBase } = yForBand(baselines[i], tops[i]);
+      ctx.lineTo(xFor(i), yBase);
+    }
+    ctx.closePath();
+    ctx.fillStyle = layer.fill;
+    ctx.fill();
+
+    // Top-edge stroke
+    ctx.beginPath();
+    tops.forEach((v, i) => {
+      const { yTop } = yForBand(baselines[i], v);
+      if (i === 0) ctx.moveTo(xFor(i), yTop); else ctx.lineTo(xFor(i), yTop);
+    });
+    ctx.strokeStyle = layer.color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.stroke();
+
+    tops.forEach((v, i) => { baselines[i] = v; });
+  });
+
+  // X-axis year labels
+  const targetLabels = Math.max(4, Math.min(8, Math.floor(plotWidth / 90)));
+  const yearStep = Math.max(1, Math.ceil((n - 1) / Math.max(1, targetLabels - 1)));
+  const yearLabelIdxs = [];
+  for (let i = 0; i < n; i += yearStep) yearLabelIdxs.push(i);
+  if (yearLabelIdxs[yearLabelIdxs.length - 1] !== n - 1) yearLabelIdxs.push(n - 1);
+  ctx.fillStyle = cs.labelColor;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  yearLabelIdxs.forEach((ri) => {
+    const row = projection.rows[ri];
+    ctx.fillText(String(row.calendarYear), xFor(ri), height - 34);
+    ctx.fillText(`(age ${row.age})`, xFor(ri), height - 18);
+  });
+
+  // Legend
+  let lx = pad.left, ly = 16;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.font = cs.font;
+  layers.forEach((item) => {
+    const iw = ctx.measureText(item.label).width + 34;
+    if (lx > pad.left && lx + iw > width - pad.right) { lx = pad.left; ly += 18; }
+    ctx.fillStyle = item.fill;
+    ctx.fillRect(lx, ly - 6, 18, 12);
+    ctx.strokeStyle = item.color;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(lx, ly - 6, 18, 12);
+    ctx.fillStyle = cs.legendColor;
+    ctx.fillText(item.label, lx + 24, ly);
+    lx += iw + 8;
+  });
+
+  // ── Hover tooltip ────────────────────────────────────────────────────────
+  if (hoverX === null || n < 2) return;
+
+  const clampedX = Math.max(pad.left, Math.min(width - pad.right, hoverX));
+  const rowIndex = Math.min(n - 1, Math.max(0, Math.round(((clampedX - pad.left) / plotWidth) * (n - 1))));
+  const row = projection.rows[rowIndex];
+  const hx = xFor(rowIndex);
+
+  // Vertical hairline
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(hx, pad.top);
+  ctx.lineTo(hx, pad.top + plotHeight);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Dots at the top of each band at the hover column
+  let dotBase = 0;
+  layers.forEach((layer, li) => {
+    const v = Math.max(0, row[layer.key] || 0);
+    const top = dotBase + v;
+    const { yTop } = yForBand(dotBase, top);
+    ctx.beginPath();
+    ctx.arc(hx, yTop, 5, 0, Math.PI * 2);
+    ctx.fillStyle = layer.color;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    dotBase = top;
+  });
+
+  const lines = [
+    { text: `${row.calendarYear}  ·  age ${row.age}`, bold: true },
+    ...layers.map((l) => ({ text: `${l.label}: ${formatCurrency(row[l.key] || 0)}`, dot: l.color })),
+    { text: `Total: ${formatCurrency(stackTotals[rowIndex])}`, bold: true, sep: true },
+  ];
+
+  drawChartTooltip(ctx, {
+    x: hx, y: pad.top + 12, lines, width, padLeft: pad.left, padRight: pad.right,
+    plotTop: pad.top, plotBottom: pad.top + plotHeight, cs,
+  });
+}
+
+function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
   const incomeSources = [
     { key: "partnerIncome", label: "Partner work", color: "#2563eb" },
     { key: "partnerStatePension", label: "Partner state pension", color: "#16a34a" },
@@ -2426,6 +2967,41 @@ function renderStackedIncomeChartCanvas({ canvas, projection }) {
     ctx.fillText(item.label, legendX + 26, legendY);
     legendX += itemWidth;
   });
+
+  // ── Hover tooltip ────────────────────────────────────────────────────────
+  if (hoverX === null || projection.rows.length < 2) return;
+
+  const n = projection.rows.length;
+  const clampedX = Math.max(pad.left, Math.min(width - pad.right, hoverX));
+  const rowIndex = Math.min(n - 1, Math.max(0, Math.floor((clampedX - pad.left) / barBand)));
+  const row = projection.rows[rowIndex];
+  const hx = xFor(rowIndex);
+
+  // Hairline
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(hx, pad.top);
+  ctx.lineTo(hx, pad.top + plotHeight);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Build tooltip — only show sources with a non-zero value
+  const incomeTotal = incomeSources.reduce((s, src) => s + Math.max(0, Number(row[src.key]) || 0), 0);
+  const lines = [
+    { text: `${row.calendarYear}  ·  age ${row.age}`, bold: true },
+    ...incomeSources
+      .filter((src) => (row[src.key] || 0) > 0.01)
+      .map((src) => ({ text: `${src.label}: ${formatCurrency(row[src.key])}`, dot: src.color })),
+    { text: `Income needed: ${formatCurrency(row[needSeries.key])}`, dot: needSeries.color, sep: true },
+    { text: `Total income: ${formatCurrency(incomeTotal)}`, bold: true },
+  ];
+
+  drawChartTooltip(ctx, {
+    x: hx, y: pad.top + 10, lines, width, padLeft: pad.left, padRight: pad.right,
+    plotTop: pad.top, plotBottom: pad.top + plotHeight, cs,
+  });
 }
 
 function updateField(event) {
@@ -2445,7 +3021,7 @@ function updateField(event) {
 
   if (input.type === "checkbox") {
     state[key] = input.checked;
-  } else if (input.type === "number") {
+  } else if (input.type === "number" || isCurrencyInput(input)) {
     state[key] = parseInputValue(input, state[key]);
   } else {
     state[key] = input.value;
@@ -3089,8 +3665,27 @@ function resetState() {
 }
 
 inputs.forEach((input) => {
+  // Convert currency number inputs to text so we can display comma formatting
+  if (input.type === "number" && isCurrencyInput(input)) {
+    input.type = "text";
+    input.inputMode = "numeric";
+  }
   input.addEventListener("input", updateField);
   input.addEventListener("change", updateField);
+  // Focus: strip commas so the user can type/edit freely
+  if (isCurrencyInput(input)) {
+    input.addEventListener("focus", () => {
+      const raw = String(input.value).replace(/,/g, "");
+      input.value = raw;
+    });
+    // Blur: re-apply comma formatting
+    input.addEventListener("blur", () => {
+      const parsed = parseInputValue(input, null);
+      if (parsed !== null) {
+        input.value = formatCurrency(parsed);
+      }
+    });
+  }
 });
 
 tableViewSelect.addEventListener("change", () => {
@@ -3151,6 +3746,70 @@ showPotChartToggle.addEventListener("change", () => {
   uiState.showPotChart = showPotChartToggle.checked;
   saveUiState();
   render();
+});
+
+// Savings chart hover tooltip
+potChartCanvas.addEventListener("mousemove", (e) => {
+  if (!_savingsChartProjection || !uiState.showPotChart) return;
+  const rect = potChartCanvas.getBoundingClientRect();
+  renderStackedSavingsChartCanvas({
+    canvas: potChartCanvas,
+    projection: _savingsChartProjection,
+    hoverX: e.clientX - rect.left,
+  });
+});
+potChartCanvas.addEventListener("mouseleave", () => {
+  if (!_savingsChartProjection || !uiState.showPotChart) return;
+  renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection });
+});
+
+// Income chart hover tooltip
+incomeChartCanvas.addEventListener("mousemove", (e) => {
+  if (!_incomeChartState || !uiState.showIncomeChart) return;
+  const { projection, mode } = _incomeChartState;
+  const rect = incomeChartCanvas.getBoundingClientRect();
+  const hoverX = e.clientX - rect.left;
+  if (mode === "stacked") {
+    renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection, hoverX });
+  } else {
+    renderChartCanvas({
+      canvas: incomeChartCanvas, projection, axisStep: 10000, hoverX,
+      series: [
+        { key: "totalIncomeRequired", label: "Income needed", color: "#b45309" },
+        { key: "incomeTotal", label: "Income total", color: "#1d4ed8", dash: [7, 5] },
+      ],
+      minFloor: 0,
+    });
+  }
+});
+incomeChartCanvas.addEventListener("mouseleave", () => {
+  if (!_incomeChartState || !uiState.showIncomeChart) return;
+  const { projection, mode } = _incomeChartState;
+  if (mode === "stacked") {
+    renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection });
+  } else {
+    renderChartCanvas({
+      canvas: incomeChartCanvas, projection, axisStep: 10000,
+      series: [
+        { key: "totalIncomeRequired", label: "Income needed", color: "#b45309" },
+        { key: "incomeTotal", label: "Income total", color: "#1d4ed8", dash: [7, 5] },
+      ],
+      minFloor: 0,
+    });
+  }
+});
+
+// Spending breakdown chart hover tooltip
+spendingChartCanvas.addEventListener("mousemove", (e) => {
+  if (!_spendingChartState) return;
+  const { projection, realTerms, monthly, freeOnly } = _spendingChartState;
+  const rect = spendingChartCanvas.getBoundingClientRect();
+  renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms, monthly, freeOnly, hoverX: e.clientX - rect.left });
+});
+spendingChartCanvas.addEventListener("mouseleave", () => {
+  if (!_spendingChartState) return;
+  const { projection, realTerms, monthly, freeOnly } = _spendingChartState;
+  renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms, monthly, freeOnly });
 });
 
 showIncomeChartToggle.addEventListener("change", () => {
@@ -3469,7 +4128,7 @@ function syncSwatches() {
   textHueSwatch.style.background = `hsl(${customTextHue}, 22%, 88%)`;
 }
 
-// Initialise
+// Initialise — render() re-runs after applyTheme so charts use the saved theme colours
 loadThemePrefs();
 bgHueSlider.value = customBgHue;
 tileHueSlider.value = customTileHue;
@@ -3478,6 +4137,8 @@ textHueSlider.value = customTextHue;
 syncSwatches();
 applyTheme(activeTheme, customBgHue, customTileHue, customCanvasHue, customTextHue);
 themeCustomSliders.hidden = activeTheme !== "custom";
+render();
+renderSpecialEventsPanel();
 
 // Toggle panel open/close
 themeSettingsBtn.addEventListener("click", (e) => {
@@ -3498,6 +4159,7 @@ document.querySelectorAll(".theme-chip").forEach((btn) => {
     themeCustomSliders.hidden = activeTheme !== "custom";
     applyTheme(activeTheme, customBgHue, customTileHue, customCanvasHue, customTextHue);
     saveThemePrefs();
+    render();
   });
 });
 
@@ -3507,6 +4169,7 @@ bgHueSlider.addEventListener("input", () => {
   syncSwatches();
   applyTheme("custom", customBgHue, customTileHue, customCanvasHue, customTextHue);
   saveThemePrefs();
+  render();
 });
 
 tileHueSlider.addEventListener("input", () => {
@@ -3514,6 +4177,7 @@ tileHueSlider.addEventListener("input", () => {
   syncSwatches();
   applyTheme("custom", customBgHue, customTileHue, customCanvasHue, customTextHue);
   saveThemePrefs();
+  render();
 });
 
 canvasHueSlider.addEventListener("input", () => {
@@ -3521,6 +4185,7 @@ canvasHueSlider.addEventListener("input", () => {
   syncSwatches();
   applyTheme("custom", customBgHue, customTileHue, customCanvasHue, customTextHue);
   saveThemePrefs();
+  render();
 });
 
 textHueSlider.addEventListener("input", () => {
@@ -3528,6 +4193,7 @@ textHueSlider.addEventListener("input", () => {
   syncSwatches();
   applyTheme("custom", customBgHue, customTileHue, customCanvasHue, customTextHue);
   saveThemePrefs();
+  render();
 });
 
 // ─── Income vertical sliders ───────────────────────────────────────────────
@@ -3644,4 +4310,85 @@ document.addEventListener("click", (e) => {
     activeIncomeField = null;
     activeIncomeBtn = null;
   }
+});
+
+// ─── Special Events panel ─────────────────────────────────────────────────────
+
+const specialEventsPanel = document.getElementById("special-events-panel");
+
+specialEventsPanel.addEventListener("change", (e) => {
+  const field = e.target.dataset.eventField;
+  if (!field) return;
+  const row = e.target.closest("[data-event-index]");
+  if (!row) return;
+  const i = Number(row.dataset.eventIndex);
+  const ev = (state.specialEvents || [])[i];
+  if (!ev) return;
+  if (field === "taxable") {
+    ev.taxable = e.target.checked;
+  } else if (field === "amount" || field === "year") {
+    const rawVal = String(e.target.value).replace(/,/g, "");
+    ev[field] = field === "year"
+      ? Math.max(1, Math.round(Number(rawVal) || 1))
+      : Math.max(0, Number(rawVal) || 0);
+  } else {
+    ev[field] = e.target.value;
+  }
+  saveState();
+  renderProjectionOnly();
+});
+
+specialEventsPanel.addEventListener("input", (e) => {
+  const field = e.target.dataset.eventField;
+  if (field !== "title") return;
+  const row = e.target.closest("[data-event-index]");
+  if (!row) return;
+  const i = Number(row.dataset.eventIndex);
+  const ev = (state.specialEvents || [])[i];
+  if (!ev) return;
+  ev.title = e.target.value;
+  saveState();
+  renderProjectionOnly();
+});
+
+specialEventsPanel.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-event-action]");
+  if (!btn) return;
+  const action = btn.dataset.eventAction;
+  const i = Number(btn.dataset.eventIndex);
+  if (action === "delete") {
+    state.specialEvents.splice(i, 1);
+  } else if (action === "duplicate") {
+    const copy = { ...state.specialEvents[i], id: `evt_${Date.now()}` };
+    state.specialEvents.splice(i + 1, 0, copy);
+  }
+  saveState();
+  renderSpecialEventsPanel();
+  renderProjectionOnly();
+});
+
+document.getElementById("add-event-button").addEventListener("click", () => {
+  if (!Array.isArray(state.specialEvents)) state.specialEvents = [];
+  state.specialEvents.push({
+    id: `evt_${Date.now()}`,
+    yearType: "relative",
+    year: 1,
+    type: "expense",
+    amount: 0,
+    taxable: false,
+    routing: "drawdown",
+    title: "",
+  });
+  saveState();
+  renderSpecialEventsPanel();
+  renderProjectionOnly();
+});
+
+document.getElementById("clear-events-button").addEventListener("click", () => {
+  if (!state.specialEvents || state.specialEvents.length === 0) return;
+  if (!confirm("Clear all special events?")) return;
+  state.specialEvents = [];
+  saveState();
+  renderSpecialEventsPanel();
+  renderProjectionOnly();
 });
