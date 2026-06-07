@@ -83,7 +83,7 @@ const DEFAULT_STATE = {
   taxBandCpiStartYear: CURRENT_YEAR,
   regularDrawdownEnabled: false,
   taxOptimisationMode: false,
-  usePartnerSavingsForTaxOptimisation: true,
+  savingsTaxOptimisation: "my",
   useTflsBy75: false,
   maximiseBasicRateDrawdown: false,
   forceTflsTaxablePairing: false,
@@ -160,7 +160,15 @@ const exportPlanButton = document.getElementById("export-plan-button");
 const resetButton = document.getElementById("reset-button");
 const importFile = document.getElementById("import-file");
 const togglePanelButton = document.getElementById("toggle-panel-button");
-const tableViewSelect = document.getElementById("table-view-select");
+const tableViewButton   = document.getElementById("table-view-button");
+const tableViewDropdown = document.getElementById("table-view-dropdown");
+const tableViewOptions  = tableViewDropdown.querySelectorAll(".table-view-option");
+const scenarioButton        = document.getElementById("scenario-button");
+const scenarioDropdown      = document.getElementById("scenario-dropdown");
+const scenarioOptions       = scenarioDropdown.querySelectorAll(".scenario-option");
+const savingsTaxOptimButton  = document.getElementById("savings-tax-optim-button");
+const savingsTaxOptimDropdown = document.getElementById("savings-tax-optim-dropdown");
+const savingsTaxOptimOptions  = savingsTaxOptimDropdown.querySelectorAll(".savings-tax-optim-option");
 const chooseCustomFieldsButton = document.getElementById("choose-custom-fields-button");
 const granularTaxToggleWrap = document.getElementById("granular-tax-toggle-wrap");
 const granularTaxToggle = document.getElementById("granular-tax-toggle");
@@ -234,6 +242,14 @@ function loadState() {
 
 function normaliseState(source, changedKey = null) {
   const next = { ...source };
+  // Migrate old boolean field to new enum
+  if (next.usePartnerSavingsForTaxOptimisation !== undefined && next.savingsTaxOptimisation === undefined) {
+    next.savingsTaxOptimisation = next.usePartnerSavingsForTaxOptimisation ? "balanced" : "my";
+  }
+  delete next.usePartnerSavingsForTaxOptimisation;
+  if (!["none", "my", "partner", "balanced"].includes(next.savingsTaxOptimisation)) {
+    next.savingsTaxOptimisation = "my";
+  }
   next.planName = typeof next.planName === "string" ? next.planName : "Pension plan";
   next.currentYear = CURRENT_YEAR;
 
@@ -359,7 +375,8 @@ function saveUiState() {
 function applyUiState() {
   layout.classList.toggle("controls-hidden", uiState.controlsHidden);
   togglePanelButton.textContent = uiState.controlsHidden ? "Show controls" : "Hide controls";
-  tableViewSelect.value = uiState.tableView;
+  const activeOption = tableViewDropdown.querySelector(`[data-value="${uiState.tableView}"]`);
+  if (activeOption) tableViewButton.textContent = activeOption.textContent + " ▾";
   granularTaxToggle.checked = Boolean(uiState.showGranularTaxFields);
   granularIncomeToggle.checked = Boolean(uiState.showGranularIncomeFields);
   granularGrowthToggle.checked = Boolean(uiState.showGranularGrowthFields);
@@ -1006,21 +1023,38 @@ function calculateProjection(source) {
     const tflsBy75DrawdownTarget = source.maximiseBasicRateDrawdown && source.forceTflsTaxablePairing
       ? Math.min(tflsBy75Target, basicRateMaximisedTaxFreeCash)
       : tflsBy75Target;
-    const partnerSavingsAvailableForTaxOptimisation = partnerDetailsEnabled && source.usePartnerSavingsForTaxOptimisation
+    const sto = source.savingsTaxOptimisation ?? "my";
+    const usePartnerSavings = partnerDetailsEnabled && (sto === "partner" || sto === "balanced");
+    const useMySavings = sto === "my" || sto === "balanced";
+    const mySavingsTotal = bankSavingsBalance + premiumBondsBalance + isaSavingsBalance;
+    const mySavingsGrowthRate = mySavingsTotal > 0
+      ? (bankSavingsBalance * (source.personalSavingsGrowthRate || 0)
+        + premiumBondsBalance * (source.personalSavingsGrowthRate || 0)
+        + isaSavingsBalance * (source.personalIsaGrowthRate || 0)) / mySavingsTotal
+      : 0;
+    const partnerSavingsAvailableForTaxOptimisation = usePartnerSavings
       ? (yearIndex <= 15 ? partnerSavingsBalance * 0.05 : partnerSavingsBalance)
       : 0;
+    const mySavingsAvailableForTaxOptimisation = useMySavings
+      ? (yearIndex <= 15 ? mySavingsTotal * 0.05 : mySavingsTotal)
+      : 0;
     const remainingPlanYears = Math.max(1, maxYears - yearIndex + 1);
-    const plannedPartnerSavingsForTaxOptimisation = partnerDetailsEnabled && source.usePartnerSavingsForTaxOptimisation
+    const plannedPartnerSavingsForTaxOptimisation = usePartnerSavings
       ? Math.min(
         partnerSavingsAvailableForTaxOptimisation,
         amortisingWithdrawal(partnerSavingsBalance, source.partnerSavingsGrowthRate, remainingPlanYears),
         pensionNeededGross,
       )
       : 0;
-    const savingsAvailableForTaxOptimisation = bankSavingsBalance
-      + premiumBondsBalance
-      + isaSavingsBalance
-      + partnerSavingsAvailableForTaxOptimisation;
+    const plannedMySavingsForTaxOptimisation = useMySavings
+      ? Math.min(
+        mySavingsAvailableForTaxOptimisation,
+        amortisingWithdrawal(mySavingsTotal, mySavingsGrowthRate, remainingPlanYears),
+        pensionNeededGross,
+      )
+      : 0;
+    const plannedEarlySavingsForTaxOptimisation = plannedMySavingsForTaxOptimisation + plannedPartnerSavingsForTaxOptimisation;
+    const savingsAvailableForTaxOptimisation = mySavingsAvailableForTaxOptimisation + partnerSavingsAvailableForTaxOptimisation;
     const taxOptimisedWithdrawal = source.taxOptimisationMode
       ? calculateTaxOptimisedWithdrawal({
         targetGrossIncome: Math.max(Math.max(0, pensionNeededGross - forcedTaxFreeCash), regularDrawdown),
@@ -1028,7 +1062,7 @@ function calculateProjection(source) {
         expectedBankInterest: bankInterestGross,
         taxFreeCashCapacity: Math.max(0, taxFreeCashCapacity - forcedTaxFreeCash),
         minimumTaxFreeCash: tflsBy75DrawdownTarget,
-        earlySavingsAvailable: plannedPartnerSavingsForTaxOptimisation,
+        earlySavingsAvailable: plannedEarlySavingsForTaxOptimisation,
         savingsAvailable: savingsAvailableForTaxOptimisation,
         crystallisedPot: crystallisedPot + (forcedTaxFreeCash * 3),
         uncrystallisedPot: Math.max(0, uncrystallisedPot - forcedTaxFreeCash * 4),
@@ -1293,7 +1327,7 @@ function calculateProjection(source) {
       bankInterestTaxable: bankInterestTaxBreakdown.bankInterestTaxable,
       bankInterestTax: bankInterestTaxBreakdown.bankInterestTax,
       psaProtectedTaxableWithdrawalLimit: taxOptimisedWithdrawal?.psaProtectedBasicRateLimit ?? Math.max(0, taxRules.basicRateLimit - myOtherIncome - bankInterestGross),
-      partnerSavingsIncludedInOptimisation: partnerDetailsEnabled && source.usePartnerSavingsForTaxOptimisation ? 1 : 0,
+      partnerSavingsIncludedInOptimisation: usePartnerSavings ? 1 : 0,
       partnerSavingsOptimisationLimit: partnerSavingsAvailableForTaxOptimisation,
       partnerSavingsPlannedUse: plannedPartnerSavingsForTaxOptimisation,
       grossPensionWithdrawal: totalTaxableWithdrawal,
@@ -1581,6 +1615,12 @@ function syncForm() {
     }
     input.value = formatInputValue(input, value);
   });
+  // Sync scenario button label
+  const activeScenario = scenarioDropdown.querySelector(`[data-value="${state.scenario}"]`);
+  if (activeScenario) scenarioButton.textContent = activeScenario.textContent + " ▾";
+  // Sync savings tax optimisation button label
+  const activeSto = savingsTaxOptimDropdown.querySelector(`[data-value="${state.savingsTaxOptimisation ?? "my"}"]`);
+  if (activeSto) savingsTaxOptimButton.textContent = activeSto.textContent + " ▾";
 }
 
 function renderSummary(projection) {
@@ -3445,7 +3485,7 @@ function buildPlanExportAssumptions(projection) {
       partnerSavingsAtRetirement: projection.partnerSavingsAtRetirement,
       statePensionApplyCpi: state.statePensionApplyCpi,
       statePensionCpiRate: state.statePensionCpiRate,
-      usePartnerSavingsForTaxOptimisation: state.usePartnerSavingsForTaxOptimisation,
+      savingsTaxOptimisation: state.savingsTaxOptimisation,
     },
   };
 }
@@ -3718,7 +3758,7 @@ function exportFormulaWorkbookToExcel() {
     ["Use savings", state.useSavings ? 1 : 0],
     ["Starting savings", projection.totalSeparateSavingsAtRetirement],
     ["Tax optimisation mode", state.taxOptimisationMode ? 1 : 0],
-    ["Use partner savings for tax optimisation", state.usePartnerSavingsForTaxOptimisation ? 1 : 0],
+    ["Savings tax optimisation", state.savingsTaxOptimisation ?? "my"],
     ["Use TFLS by 75", state.useTflsBy75 ? 1 : 0],
     ["Maximise drawdown to basic rate", state.maximiseBasicRateDrawdown ? 1 : 0],
     ["Force TFLS 25/75 pairing", state.forceTflsTaxablePairing ? 1 : 0],
@@ -3962,13 +4002,65 @@ inputs.forEach((input) => {
   }
 });
 
-tableViewSelect.addEventListener("change", () => {
-  uiState.tableView = tableViewSelect.value;
-  saveUiState();
-  if (uiState.tableView === "custom") {
-    openCustomFieldChooser();
+savingsTaxOptimButton.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const opening = savingsTaxOptimDropdown.hidden;
+  closeAllMenus();
+  if (opening) {
+    savingsTaxOptimDropdown.hidden = false;
+    savingsTaxOptimButton.textContent = savingsTaxOptimButton.textContent.replace("▾", "▴");
   }
-  render();
+});
+savingsTaxOptimDropdown.addEventListener("click", (e) => e.stopPropagation());
+savingsTaxOptimOptions.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.savingsTaxOptimisation = btn.dataset.value;
+    savingsTaxOptimButton.textContent = btn.textContent + " ▾";
+    savingsTaxOptimDropdown.hidden = true;
+    state = normaliseState(state, "savingsTaxOptimisation");
+    render();
+  });
+});
+
+scenarioButton.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const opening = scenarioDropdown.hidden;
+  closeAllMenus();
+  if (opening) {
+    scenarioDropdown.hidden = false;
+    scenarioButton.textContent = scenarioButton.textContent.replace("▾", "▴");
+  }
+});
+scenarioDropdown.addEventListener("click", (e) => e.stopPropagation());
+scenarioOptions.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.scenario = Number(btn.dataset.value);
+    scenarioButton.textContent = btn.textContent + " ▾";
+    scenarioDropdown.hidden = true;
+    state = normaliseState(state, "scenario");
+    render();
+  });
+});
+
+tableViewButton.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const opening = tableViewDropdown.hidden;
+  closeAllMenus();
+  if (opening) {
+    tableViewDropdown.hidden = false;
+    tableViewButton.textContent = tableViewButton.textContent.replace("▾", "▴");
+  }
+});
+tableViewDropdown.addEventListener("click", (e) => e.stopPropagation());
+tableViewOptions.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    uiState.tableView = btn.dataset.value;
+    tableViewButton.textContent = btn.textContent + " ▾";
+    tableViewDropdown.hidden = true;
+    saveUiState();
+    if (uiState.tableView === "custom") openCustomFieldChooser();
+    render();
+  });
 });
 
 closeCustomFieldsButton.addEventListener("click", closeCustomFieldChooser);
@@ -4113,22 +4205,32 @@ togglePanelButton.addEventListener("click", () => {
   render();
 });
 
+// ── Shared menu helpers ───────────────────────────────────────────────────
+function closeAllMenus() {
+  tableViewDropdown.hidden = true;
+  tableViewButton.textContent = tableViewButton.textContent.replace("▴", "▾");
+  ioMenuDropdown.hidden = true;
+  ioMenuButton.textContent = "Import / Export ▾";
+  scenarioDropdown.hidden = true;
+  scenarioButton.textContent = scenarioButton.textContent.replace("▴", "▾");
+  savingsTaxOptimDropdown.hidden = true;
+  savingsTaxOptimButton.textContent = savingsTaxOptimButton.textContent.replace("▴", "▾");
+}
+
 // ── Import / Export dropdown ──────────────────────────────────────────────
 const ioMenuButton   = document.getElementById("io-menu-button");
 const ioMenuDropdown = document.getElementById("io-menu-dropdown");
 ioMenuButton.addEventListener("click", (e) => {
   e.stopPropagation();
-  const open = !ioMenuDropdown.hidden;
-  ioMenuDropdown.hidden = open;
-  ioMenuButton.textContent = open ? "Import / Export ▾" : "Import / Export ▴";
-});
-document.addEventListener("click", () => {
-  if (!ioMenuDropdown.hidden) {
-    ioMenuDropdown.hidden = true;
-    ioMenuButton.textContent = "Import / Export ▾";
+  const opening = ioMenuDropdown.hidden;
+  closeAllMenus();
+  if (opening) {
+    ioMenuDropdown.hidden = false;
+    ioMenuButton.textContent = "Import / Export ▴";
   }
 });
 ioMenuDropdown.addEventListener("click", (e) => e.stopPropagation());
+document.addEventListener("click", closeAllMenus);
 
 summaryGrid.addEventListener("click", (event) => {
   const button = event.target.closest("[data-retirement-year-step]");
@@ -4144,7 +4246,7 @@ toggleTableWidthButton.addEventListener("click", () => {
   render();
 });
 
-const closeIoMenu = () => { ioMenuDropdown.hidden = true; ioMenuButton.textContent = "Import / Export ▾"; };
+const closeIoMenu = () => closeAllMenus();
 exportTableButton.addEventListener("click", () => { exportTableToExcel(); closeIoMenu(); });
 exportFormulaButton.addEventListener("click", () => { exportFormulaWorkbookToExcel(); closeIoMenu(); });
 exportPdfButton.addEventListener("click", () => { exportPageToPdf(); closeIoMenu(); });

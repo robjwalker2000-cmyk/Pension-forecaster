@@ -14,7 +14,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.6</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.7</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme">✦</button>
               <div id="theme-panel" class="theme-panel" hidden>
                 <p class="theme-panel-title">Theme</p>
@@ -65,7 +65,15 @@
         <div class="hero-actions">
           <div class="hero-actions-row">
             <button id="toggle-panel-button" class="button secondary" type="button">Hide controls</button>
-            <select id="table-view-select" class="button secondary table-view-select" aria-label="Table view"><option value="summarised">Summary</option><option value="detailed">Detailed</option><option value="granular">Granular</option><option value="custom">Custom</option></select>
+            <div class="io-menu-wrap">
+              <button id="table-view-button" class="button secondary" type="button">Summary ▾</button>
+              <div class="io-menu-dropdown" id="table-view-dropdown" hidden>
+                <button class="io-menu-item table-view-option" type="button" data-value="summarised">Summary</button>
+                <button class="io-menu-item table-view-option" type="button" data-value="detailed">Detailed</button>
+                <button class="io-menu-item table-view-option" type="button" data-value="granular">Granular</button>
+                <button class="io-menu-item table-view-option" type="button" data-value="custom">Custom</button>
+              </div>
+            </div>
             <div class="io-menu-wrap">
               <button id="io-menu-button" class="button secondary" type="button">Import / Export ▾</button>
               <div class="io-menu-dropdown" id="io-menu-dropdown" hidden>
@@ -123,13 +131,16 @@
               <label><span>Total pension pot</span><input data-field="currentPot" type="number" step="1000" /></label>
               <label><span>Already crystallised</span><input data-field="currentCrystallisedPot" type="number" step="1000" /></label>
               <label><span>Lump sum allowance used</span><input data-field="lumpSumAllowanceUsed" type="number" step="1000" /></label>
-              <label>
+              <label class="scenario-label">
                 <span>Growth scenario</span>
-                <select data-field="scenario">
-                  <option value="1">Low</option>
-                  <option value="2">Mid</option>
-                  <option value="3">High</option>
-                </select>
+                <div class="io-menu-wrap">
+                  <button id="scenario-button" class="button secondary scenario-button" type="button">Mid ▾</button>
+                  <div class="io-menu-dropdown" id="scenario-dropdown" hidden>
+                    <button class="io-menu-item scenario-option" type="button" data-value="1">Low</button>
+                    <button class="io-menu-item scenario-option" type="button" data-value="2">Mid</button>
+                    <button class="io-menu-item scenario-option" type="button" data-value="3">High</button>
+                  </div>
+                </div>
               </label>
               <div class="growth-rate-grid">
                 <p></p>
@@ -243,7 +254,18 @@
                 <label><span>Year 1 TFLS amount</span><input data-field="yearOneTflsAmount" type="number" step="1000" /></label>
               </div>
               <label class="toggle"><span>Tax optimisation mode</span><input data-field="taxOptimisationMode" type="checkbox" /></label>
-              <label class="toggle"><span>Use partner savings for tax optimisation</span><input data-field="usePartnerSavingsForTaxOptimisation" type="checkbox" /></label>
+              <label class="scenario-label">
+                <span>Savings tax optimisation</span>
+                <div class="io-menu-wrap">
+                  <button id="savings-tax-optim-button" class="button secondary scenario-button" type="button">My Savings ▾</button>
+                  <div class="io-menu-dropdown" id="savings-tax-optim-dropdown" hidden>
+                    <button class="io-menu-item savings-tax-optim-option" type="button" data-value="none">None</button>
+                    <button class="io-menu-item savings-tax-optim-option" type="button" data-value="my">My Savings</button>
+                    <button class="io-menu-item savings-tax-optim-option" type="button" data-value="partner">Partner Savings</button>
+                    <button class="io-menu-item savings-tax-optim-option" type="button" data-value="balanced">Balanced</button>
+                  </div>
+                </div>
+              </label>
               <label class="toggle"><span>Use TFLS by 75</span><input data-field="useTflsBy75" type="checkbox" /></label>
               <label class="toggle"><span>Maximise drawdown to basic rate</span><input data-field="maximiseBasicRateDrawdown" type="checkbox" /></label>
               <label class="toggle"><span>Force TFLS 25/75 pairing</span><input data-field="forceTflsTaxablePairing" type="checkbox" /></label>
