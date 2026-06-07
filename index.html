@@ -14,7 +14,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.5</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.6</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme">✦</button>
               <div id="theme-panel" class="theme-panel" hidden>
                 <p class="theme-panel-title">Theme</p>
@@ -63,21 +63,32 @@
           </p>
         </div>
         <div class="hero-actions">
-          <label class="button secondary" for="import-file">Import plan</label>
-          <input id="import-file" type="file" accept=".csv,.json" hidden />
-          <button id="toggle-panel-button" class="button secondary" type="button">Hide controls</button>
-          <select id="table-view-select" class="button secondary table-view-select" aria-label="Table view"><option value="summarised">Summary</option><option value="detailed">Detailed</option><option value="granular">Granular</option><option value="custom">Custom</option></select>
-          <button id="choose-custom-fields-button" class="button secondary" type="button" hidden>Choose fields</button>
-          <label id="granular-tax-toggle-wrap" class="toggle inline-toggle" hidden><span>Show tax fields</span><input id="granular-tax-toggle" type="checkbox" /></label>
-          <label id="granular-income-toggle-wrap" class="toggle inline-toggle" hidden><span>Show income details</span><input id="granular-income-toggle" type="checkbox" /></label>
-          <label id="granular-growth-toggle-wrap" class="toggle inline-toggle" hidden><span>Show growth breakdown</span><input id="granular-growth-toggle" type="checkbox" /></label>
-          <label id="granular-crystallisation-toggle-wrap" class="toggle inline-toggle" hidden><span>Show crystallisation details</span><input id="granular-crystallisation-toggle" type="checkbox" /></label>
-          <button id="export-table-button" class="button secondary" type="button">Export table</button>
-          <button id="export-formula-button" class="button secondary formula-export-button" type="button">Export Excel formulas</button>
-          <button id="export-pdf-button" class="button secondary" type="button">Export PDF</button>
-          <button id="export-plan-button" class="button secondary" type="button">Export plan</button>
-          <button id="share-link-button" class="button secondary" type="button">Share link</button>
-          <button id="reset-button" class="button" type="button">Reset defaults</button>
+          <div class="hero-actions-row">
+            <button id="toggle-panel-button" class="button secondary" type="button">Hide controls</button>
+            <select id="table-view-select" class="button secondary table-view-select" aria-label="Table view"><option value="summarised">Summary</option><option value="detailed">Detailed</option><option value="granular">Granular</option><option value="custom">Custom</option></select>
+            <div class="io-menu-wrap">
+              <button id="io-menu-button" class="button secondary" type="button">Import / Export ▾</button>
+              <div class="io-menu-dropdown" id="io-menu-dropdown" hidden>
+                <label class="io-menu-item" for="import-file">Import plan</label>
+                <input id="import-file" type="file" accept=".csv,.json" hidden />
+                <button id="export-plan-button" class="io-menu-item" type="button">Export plan</button>
+                <button id="export-table-button" class="io-menu-item" type="button">Export table</button>
+                <button id="export-formula-button" class="io-menu-item" type="button">Export formulas</button>
+                <button id="export-pdf-button" class="io-menu-item" type="button">Export PDF</button>
+              </div>
+            </div>
+            <button id="share-link-button" class="button secondary" type="button">Share link</button>
+            <button id="reset-button" class="button" type="button">Reset defaults</button>
+          </div>
+          <div class="hero-actions-row hero-granular-row" id="custom-options-row" hidden>
+            <button id="choose-custom-fields-button" class="button secondary" type="button">Choose fields</button>
+          </div>
+          <div class="hero-actions-row hero-granular-row" id="granular-options-row" hidden>
+            <label id="granular-tax-toggle-wrap" class="toggle inline-toggle"><span>Show tax fields</span><input id="granular-tax-toggle" type="checkbox" /></label>
+            <label id="granular-income-toggle-wrap" class="toggle inline-toggle"><span>Show income details</span><input id="granular-income-toggle" type="checkbox" /></label>
+            <label id="granular-growth-toggle-wrap" class="toggle inline-toggle"><span>Show growth breakdown</span><input id="granular-growth-toggle" type="checkbox" /></label>
+            <label id="granular-crystallisation-toggle-wrap" class="toggle inline-toggle"><span>Show crystallisation details</span><input id="granular-crystallisation-toggle" type="checkbox" /></label>
+          </div>
         </div>
       </header>
 
@@ -101,7 +112,7 @@
                 <label><span>DB initial lump sum</span><input data-field="definedBenefitInitialLumpSum" type="number" step="1000" /></label>
                 <label><span>DB initial annual amount</span><input data-field="definedBenefitInitialAnnualAmount" type="number" step="1000" /></label>
                 <label><span>DB max years</span><input data-field="definedBenefitMaxYears" type="number" step="1" min="1" /></label>
-                <label><span>DB growth rate</span><input data-field="definedBenefitGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
+                <label class="income-slider-field"><span>DB growth rate</span><input data-field="definedBenefitGrowthRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="definedBenefitGrowthRate" aria-label="Quick slider for DB growth rate">↕</button></label>
               </div>
             </div>
           </section>
@@ -125,14 +136,14 @@
                 <p>Pre-retirement</p>
                 <p>Post-retirement</p>
                 <p data-growth-scenario="1">Low</p>
-                <label data-growth-scenario="1"><span>Low pre-retirement</span><input data-field="growthLow" data-format="percent-1" type="number" step="0.1" /></label>
-                <label data-growth-scenario="1"><span>Low post-retirement</span><input data-field="postRetirementGrowthLow" data-format="percent-1" type="number" step="0.1" /></label>
+                <label class="income-slider-field" data-growth-scenario="1"><span>Low pre-retirement</span><input data-field="growthLow" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="growthLow" aria-label="Quick slider">↕</button></label>
+                <label class="income-slider-field" data-growth-scenario="1"><span>Low post-retirement</span><input data-field="postRetirementGrowthLow" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="postRetirementGrowthLow" aria-label="Quick slider">↕</button></label>
                 <p data-growth-scenario="2">Mid</p>
-                <label data-growth-scenario="2"><span>Mid pre-retirement</span><input data-field="growthMid" data-format="percent-1" type="number" step="0.1" /></label>
-                <label data-growth-scenario="2"><span>Mid post-retirement</span><input data-field="postRetirementGrowthMid" data-format="percent-1" type="number" step="0.1" /></label>
+                <label class="income-slider-field" data-growth-scenario="2"><span>Mid pre-retirement</span><input data-field="growthMid" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="growthMid" aria-label="Quick slider">↕</button></label>
+                <label class="income-slider-field" data-growth-scenario="2"><span>Mid post-retirement</span><input data-field="postRetirementGrowthMid" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="postRetirementGrowthMid" aria-label="Quick slider">↕</button></label>
                 <p data-growth-scenario="3">High</p>
-                <label data-growth-scenario="3"><span>High pre-retirement</span><input data-field="growthHigh" data-format="percent-1" type="number" step="0.1" /></label>
-                <label data-growth-scenario="3"><span>High post-retirement</span><input data-field="postRetirementGrowthHigh" data-format="percent-1" type="number" step="0.1" /></label>
+                <label class="income-slider-field" data-growth-scenario="3"><span>High pre-retirement</span><input data-field="growthHigh" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="growthHigh" aria-label="Quick slider">↕</button></label>
+                <label class="income-slider-field" data-growth-scenario="3"><span>High post-retirement</span><input data-field="postRetirementGrowthHigh" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="postRetirementGrowthHigh" aria-label="Quick slider">↕</button></label>
               </div>
               <label class="toggle"><span>Apply pot growth</span><input data-field="applyPotGrowth" type="checkbox" /></label>
               <label class="toggle"><span>Taper growth to retirement</span><input data-field="taperPreRetirementGrowth" type="checkbox" /></label>
@@ -153,7 +164,7 @@
               <label class="toggle"><span>Income values relative to today</span><input data-field="incomeValuesRelativeToToday" type="checkbox" /></label>
               <label class="toggle"><span>Apply CPI to bills</span><input data-field="applyCpiBills" type="checkbox" /></label>
               <label class="toggle"><span>Apply CPI to holidays</span><input data-field="applyCpiHolidays" type="checkbox" /></label>
-              <label><span>CPI rate</span><input data-field="cpiRate" data-format="percent-1" type="number" step="0.1" /></label>
+              <label class="income-slider-field"><span>CPI rate</span><input data-field="cpiRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="cpiRate" aria-label="Quick slider for CPI rate">↕</button></label>
             </div>
           </section>
 
@@ -163,16 +174,16 @@
               <label class="toggle"><span>Use savings</span><input data-field="useSavings" type="checkbox" /></label>
               <div id="savings-fields" class="optional-field-group">
                 <div class="field-pair">
-                  <label><span>Bank savings</span><input data-field="personalBankSavings" type="number" step="1000" /></label>
-                  <label><span>Interest %</span><input data-field="personalBankInterestRate" data-format="percent-1" type="number" step="0.1" /></label>
+                  <label class="income-slider-field"><span>Bank savings</span><input data-field="personalBankSavings" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="personalBankSavings" aria-label="Quick slider for bank savings">↕</button></label>
+                  <label class="income-slider-field"><span>Interest %</span><input data-field="personalBankInterestRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="personalBankInterestRate" aria-label="Quick slider for bank interest rate">↕</button></label>
                 </div>
                 <div class="field-pair">
-                  <label><span>ISA savings</span><input data-field="personalIsaSavings" type="number" step="1000" /></label>
-                  <label><span>Growth %</span><input data-field="personalIsaGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
+                  <label class="income-slider-field"><span>ISA savings</span><input data-field="personalIsaSavings" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="personalIsaSavings" aria-label="Quick slider for ISA savings">↕</button></label>
+                  <label class="income-slider-field"><span>Growth %</span><input data-field="personalIsaGrowthRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="personalIsaGrowthRate" aria-label="Quick slider for ISA growth rate">↕</button></label>
                 </div>
                 <div class="field-pair">
-                  <label><span>Premium Bonds</span><input data-field="personalPremiumBonds" type="number" step="1000" /></label>
-                  <label><span>Growth %</span><input data-field="personalPremiumBondsGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
+                  <label class="income-slider-field"><span>Premium Bonds</span><input data-field="personalPremiumBonds" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="personalPremiumBonds" aria-label="Quick slider for premium bonds">↕</button></label>
+                  <label class="income-slider-field"><span>Growth %</span><input data-field="personalPremiumBondsGrowthRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="personalPremiumBondsGrowthRate" aria-label="Quick slider for premium bonds growth rate">↕</button></label>
                 </div>
               </div>
             </div>
@@ -184,17 +195,17 @@
               <label class="toggle"><span>Use partner details</span><input data-field="partnerDetailsEnabled" type="checkbox" /></label>
               <div id="partner-detail-fields" class="optional-field-group">
                 <label><span>Partner year of birth</span><input data-field="partnerBirthYear" type="number" step="1" /></label>
-                <label><span>Partner work income</span><input data-field="partnerWorkIncome" type="number" step="1000" /></label>
-                <label><span>Partner work pension</span><input data-field="partnerWorkPension" type="number" step="1000" /></label>
-                <label><span>Partner state pension</span><input data-field="partnerStatePension" type="number" step="1000" /></label>
+                <label class="income-slider-field"><span>Partner work income</span><input data-field="partnerWorkIncome" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="partnerWorkIncome" aria-label="Quick slider for partner work income">↕</button></label>
+                <label class="income-slider-field"><span>Partner work pension</span><input data-field="partnerWorkPension" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="partnerWorkPension" aria-label="Quick slider for partner work pension">↕</button></label>
+                <label class="income-slider-field"><span>Partner state pension</span><input data-field="partnerStatePension" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="partnerStatePension" aria-label="Quick slider for partner state pension">↕</button></label>
                 <div class="field-pair">
-                  <label><span>Partner savings</span><input data-field="partnerSavings" type="number" step="1000" /></label>
-                  <label><span>Growth %</span><input data-field="partnerSavingsGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
+                  <label class="income-slider-field"><span>Partner savings</span><input data-field="partnerSavings" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="partnerSavings" aria-label="Quick slider for partner savings">↕</button></label>
+                  <label class="income-slider-field"><span>Growth %</span><input data-field="partnerSavingsGrowthRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="partnerSavingsGrowthRate" aria-label="Quick slider for partner savings growth">↕</button></label>
                 </div>
                 <label class="toggle"><span>CPI on partner work</span><input data-field="partnerWorkApplyCpi" type="checkbox" /></label>
-                <label><span>Partner work CPI</span><input data-field="partnerWorkCpiRate" data-format="percent-1" type="number" step="0.1" /></label>
+                <label class="income-slider-field"><span>Partner work CPI</span><input data-field="partnerWorkCpiRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="partnerWorkCpiRate" aria-label="Quick slider for partner work CPI">↕</button></label>
                 <label class="toggle"><span>CPI on partner pensions</span><input data-field="statePensionApplyCpi" type="checkbox" /></label>
-                <label><span>Partner pension CPI</span><input data-field="statePensionCpiRate" data-format="percent-1" type="number" step="0.1" /></label>
+                <label class="income-slider-field"><span>Partner pension CPI</span><input data-field="statePensionCpiRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="statePensionCpiRate" aria-label="Quick slider for partner pension CPI">↕</button></label>
               </div>
             </div>
           </section>
@@ -202,11 +213,11 @@
           <section class="panel">
             <h2>Personal Tax</h2>
             <div class="field-grid">
-              <label><span>Own state pension</span><input data-field="ownStatePension" type="number" step="1000" /></label>
-              <label><span>Own state pension growth</span><input data-field="ownStatePensionGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
-              <label><span>Tax allowance CPI</span><input data-field="taxAllowanceCpiRate" data-format="percent-1" type="number" step="0.1" /></label>
+              <label class="income-slider-field"><span>Own state pension</span><input data-field="ownStatePension" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="ownStatePension" aria-label="Quick slider for own state pension">↕</button></label>
+              <label class="income-slider-field"><span>Own state pension growth</span><input data-field="ownStatePensionGrowthRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="ownStatePensionGrowthRate" aria-label="Quick slider for state pension growth">↕</button></label>
+              <label class="income-slider-field"><span>Tax allowance CPI</span><input data-field="taxAllowanceCpiRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="taxAllowanceCpiRate" aria-label="Quick slider for tax allowance CPI">↕</button></label>
               <label class="toggle"><span>Increase tax allowance by CPI</span><input data-field="applyTaxAllowanceCpi" type="checkbox" /></label>
-              <label><span>Tax bands CPI</span><input data-field="taxBandCpiRate" data-format="percent-1" type="number" step="0.1" /></label>
+              <label class="income-slider-field"><span>Tax bands CPI</span><input data-field="taxBandCpiRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="taxBandCpiRate" aria-label="Quick slider for tax bands CPI">↕</button></label>
               <label><span>Tax bands every N years</span><input data-field="taxBandCpiFrequencyYears" type="number" step="1" min="1" /></label>
               <label><span>Tax bands start year</span><input data-field="taxBandCpiStartYear" type="number" step="1" /></label>
             </div>
@@ -236,6 +247,7 @@
               <label class="toggle"><span>Use TFLS by 75</span><input data-field="useTflsBy75" type="checkbox" /></label>
               <label class="toggle"><span>Maximise drawdown to basic rate</span><input data-field="maximiseBasicRateDrawdown" type="checkbox" /></label>
               <label class="toggle"><span>Force TFLS 25/75 pairing</span><input data-field="forceTflsTaxablePairing" type="checkbox" /></label>
+              <label class="toggle"><span>Use my savings for car</span><input data-field="useSavingsForCar" type="checkbox" /></label>
             </div>
           </section>
         </aside>
@@ -248,17 +260,17 @@
               <h2>Projection Trend</h2>
               <div class="chart-heading-actions">
                 <p id="chart-caption"></p>
-                <div class="chart-controls" aria-label="Chart display options">
-                  <label class="toggle inline-toggle"><span>Savings &amp; pot</span><input id="show-pot-chart-toggle" type="checkbox" /></label>
-                  <label class="toggle inline-toggle"><span>Income</span><input id="show-income-chart-toggle" type="checkbox" /></label>
-                  <label class="toggle inline-toggle"><span>Spending</span><input id="show-spending-chart-toggle" type="checkbox" /></label>
+                <div class="chart-toggle-chips" aria-label="Chart display options">
+                  <button class="chart-toggle-chip" id="show-pot-chart-toggle" type="button">Savings &amp; pot</button>
+                  <button class="chart-toggle-chip" id="show-income-chart-toggle" type="button">Income</button>
+                  <button class="chart-toggle-chip" id="show-spending-chart-toggle" type="button">Spending</button>
+                  <button class="chart-toggle-chip" id="savings-preretirement-toggle" type="button">Pre-retirement</button>
                 </div>
               </div>
             </div>
             <div class="chart-stack">
               <div class="chart-frame" id="pot-chart-wrap" style="position:relative">
                 <canvas id="pot-chart" width="900" height="280"></canvas>
-                <label class="toggle inline-toggle savings-preretire-toggle" title="Show savings accumulation before retirement"><span>Pre-retirement</span><input id="savings-preretirement-toggle" type="checkbox" /></label>
               </div>
               <div class="chart-frame" id="income-chart-wrap">
                 <canvas id="income-chart" width="900" height="280"></canvas>
@@ -266,11 +278,11 @@
               <div id="spending-chart-section">
                 <div class="chart-sub-heading">
                   <span class="chart-sub-title">Spending Breakdown</span>
-                  <div class="chart-sub-controls">
+                  <div class="chart-toggle-chips chart-sub-controls">
                     <p id="spending-chart-caption"></p>
-                    <label class="toggle inline-toggle"><span>Free cash only</span><input id="spending-chart-free-toggle" type="checkbox" /></label>
-                    <label class="toggle inline-toggle"><span>Monthly</span><input id="spending-chart-monthly-toggle" type="checkbox" /></label>
-                    <label class="toggle inline-toggle"><span>Today's money</span><input id="spending-chart-real-toggle" type="checkbox" /></label>
+                    <button class="chart-toggle-chip" id="spending-chart-free-toggle" type="button">Free cash only</button>
+                    <button class="chart-toggle-chip" id="spending-chart-monthly-toggle" type="button">Monthly</button>
+                    <button class="chart-toggle-chip" id="spending-chart-real-toggle" type="button">Today's money</button>
                   </div>
                 </div>
                 <div class="chart-frame" id="spending-chart-wrap">
@@ -352,18 +364,18 @@
           <label><span>Already crystallised</span><input data-field="currentCrystallisedPot" type="number" step="1000" /></label>
           <label><span>Lump sum allowance used</span><input data-field="lumpSumAllowanceUsed" type="number" step="1000" /></label>
           <div class="field-pair">
-            <label><span>Bank savings</span><input data-field="personalBankSavings" type="number" step="1000" /></label>
-            <label><span>Interest %</span><input data-field="personalBankInterestRate" data-format="percent-1" type="number" step="0.1" /></label>
+            <label class="income-slider-field"><span>Bank savings</span><input data-field="personalBankSavings" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="personalBankSavings" aria-label="Quick slider for bank savings">↕</button></label>
+            <label class="income-slider-field"><span>Interest %</span><input data-field="personalBankInterestRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="personalBankInterestRate" aria-label="Quick slider for bank interest">↕</button></label>
           </div>
           <div class="field-pair">
-            <label><span>ISA savings</span><input data-field="personalIsaSavings" type="number" step="1000" /></label>
-            <label><span>Growth %</span><input data-field="personalIsaGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
+            <label class="income-slider-field"><span>ISA savings</span><input data-field="personalIsaSavings" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="personalIsaSavings" aria-label="Quick slider for ISA savings">↕</button></label>
+            <label class="income-slider-field"><span>Growth %</span><input data-field="personalIsaGrowthRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="personalIsaGrowthRate" aria-label="Quick slider for ISA growth">↕</button></label>
           </div>
           <div class="field-pair">
-            <label><span>Premium Bonds</span><input data-field="personalPremiumBonds" type="number" step="1000" /></label>
-            <label><span>Growth %</span><input data-field="personalPremiumBondsGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
+            <label class="income-slider-field"><span>Premium Bonds</span><input data-field="personalPremiumBonds" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="personalPremiumBonds" aria-label="Quick slider for premium bonds">↕</button></label>
+            <label class="income-slider-field"><span>Growth %</span><input data-field="personalPremiumBondsGrowthRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="personalPremiumBondsGrowthRate" aria-label="Quick slider for premium bonds growth">↕</button></label>
           </div>
-          <label><span>Own state pension</span><input data-field="ownStatePension" type="number" step="1000" /></label>
+          <label class="income-slider-field"><span>Own state pension</span><input data-field="ownStatePension" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="ownStatePension" aria-label="Quick slider for own state pension">↕</button></label>
           <label><span>Income required</span><input data-field="incomeRequired" type="number" step="1000" /></label>
           <label><span>Income after year 10</span><input data-field="incomeAfterYear10" type="number" step="1000" /></label>
           <label><span>Household bills</span><input data-field="billsAnnual" type="number" step="1000" /></label>
