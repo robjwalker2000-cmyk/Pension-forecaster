@@ -4253,7 +4253,7 @@ exportPdfButton.addEventListener("click", () => { exportPageToPdf(); closeIoMenu
 exportPlanButton.addEventListener("click", () => { exportPlan(); closeIoMenu(); });
 resetButton.addEventListener("click", resetState);
 versionBadge.addEventListener("click", showVersionChangeDate);
-importFile.addEventListener("change", () => { importState(); closeIoMenu(); });
+importFile.addEventListener("change", (e) => { importState(e); closeIoMenu(); });
 window.addEventListener("resize", render);
 
 // ─── Share link ───────────────────────────────────────────────────────────
