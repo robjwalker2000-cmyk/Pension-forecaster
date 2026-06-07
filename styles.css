@@ -160,9 +160,58 @@ h1 {
 
 .hero-actions {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.hero-actions-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 10px;
+}
+.hero-granular-row {
+  justify-content: flex-end;
+}
+.hero-granular-row[hidden] { display: none; }
+
+/* ── Import / Export dropdown ────────────────────────────────────────────── */
+.io-menu-wrap {
+  position: relative;
+}
+.io-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  background: var(--panel, var(--card));
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 200;
+}
+.io-menu-dropdown[hidden] { display: none; }
+.io-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.io-menu-item:hover {
+  background: rgba(0, 212, 184, 0.12);
+  color: var(--accent, #00d4b8);
 }
 
 .button {
@@ -445,6 +494,7 @@ select option {
   position: relative;
   overflow: hidden;
   transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
+  min-height: 130px;
 }
 
 .summary-card:hover {
@@ -545,6 +595,11 @@ select option {
   margin: 0;
   font-size: 0.84rem;
   line-height: 1.4;
+  height: calc(3 * 1.4 * 0.84rem);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 .summary-card-split {
@@ -555,6 +610,41 @@ select option {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+/* Card with big value left, breakdown list right */
+.summary-card-panel .summary-panel-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: start;
+  margin-top: 4px;
+}
+
+.summary-panel-breakdown {
+  border-left: 1px solid rgba(99, 179, 237, 0.12);
+  padding-left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.summary-panel-breakdown-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.summary-panel-breakdown-item span:first-child {
+  color: var(--muted);
+}
+
+.summary-panel-breakdown-item span:last-child {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .summary-split-item + .summary-split-item {
@@ -655,6 +745,34 @@ select option {
   cursor: crosshair;
 }
 
+/* ── Chart toggle chips ──────────────────────────────────────────────────── */
+.chart-toggle-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chart-toggle-chip {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted, var(--text-muted));
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.chart-toggle-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.chart-toggle-chip-active {
+  background: rgba(0,212,184,0.12);
+  border-color: rgba(0,212,184,0.5);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .chart-sub-heading {
   display: flex;
   align-items: center;
@@ -673,7 +791,10 @@ select option {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  flex: 1;
+  margin-left: auto;
+}
+#spending-chart-caption {
+  display: none;
 }
 
 .savings-preretire-toggle {
@@ -1446,6 +1567,29 @@ html[data-theme="metallic"] .growth-rate-grid label.growth-scenario-selected inp
 
 .income-slider-field {
   position: relative;
+}
+
+/* Show % suffix on percent-format inputs */
+label:has(input[data-format="percent-1"]) {
+  position: relative;
+}
+
+label:has(input[data-format="percent-1"]) input {
+  padding-right: 24px;
+}
+
+label:has(input[data-format="percent-1"])::after {
+  content: "%";
+  position: absolute;
+  right: 36px; /* leave room for ↕ button when present */
+  bottom: 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+label:not(.income-slider-field):has(input[data-format="percent-1"])::after {
+  right: 10px;
 }
 
 .income-popup-btn {

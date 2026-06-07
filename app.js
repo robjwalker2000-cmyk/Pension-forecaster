@@ -87,6 +87,7 @@ const DEFAULT_STATE = {
   useTflsBy75: false,
   maximiseBasicRateDrawdown: false,
   forceTflsTaxablePairing: false,
+  useSavingsForCar: false,
   regularDrawdownAmount: 12000,
   regularDrawdownYears: 15,
   specialEvents: [],
@@ -363,23 +364,20 @@ function applyUiState() {
   granularIncomeToggle.checked = Boolean(uiState.showGranularIncomeFields);
   granularGrowthToggle.checked = Boolean(uiState.showGranularGrowthFields);
   granularCrystallisationToggle.checked = Boolean(uiState.showGranularCrystallisationFields);
-  showPotChartToggle.checked = Boolean(uiState.showPotChart);
-  showIncomeChartToggle.checked = Boolean(uiState.showIncomeChart);
-  showSpendingChartToggle.checked = Boolean(uiState.showSpendingChart);
+  showPotChartToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.showPotChart));
+  showIncomeChartToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.showIncomeChart));
+  showSpendingChartToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.showSpendingChart));
   showTableToggle.checked = Boolean(uiState.showTable);
-  spendingChartRealToggle.checked = Boolean(uiState.spendingChartReal);
-  spendingChartMonthlyToggle.checked = Boolean(uiState.spendingChartMonthly);
-  spendingChartFreeToggle.checked = Boolean(uiState.spendingChartFreeOnly);
-  savingsPreRetirementToggle.checked = Boolean(uiState.savingsShowPreRetirement);
+  spendingChartRealToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.spendingChartReal));
+  spendingChartMonthlyToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.spendingChartMonthly));
+  spendingChartFreeToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.spendingChartFreeOnly));
+  savingsPreRetirementToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.savingsShowPreRetirement));
   tablePanel.classList.toggle("table-panel-expanded", Boolean(uiState.tableExpanded));
   toggleTableWidthButton.textContent = uiState.tableExpanded ? "-" : "+";
   toggleTableWidthButton.setAttribute("aria-label", uiState.tableExpanded ? "Reduce table width" : "Expand table width");
   toggleTableWidthButton.title = uiState.tableExpanded ? "Reduce table width" : "Expand table width";
-  granularTaxToggleWrap.hidden = uiState.tableView !== "granular";
-  granularIncomeToggleWrap.hidden = uiState.tableView !== "granular";
-  granularGrowthToggleWrap.hidden = uiState.tableView !== "granular";
-  granularCrystallisationToggleWrap.hidden = uiState.tableView !== "granular";
-  chooseCustomFieldsButton.hidden = uiState.tableView !== "custom";
+  document.getElementById("granular-options-row").hidden = uiState.tableView !== "granular";
+  document.getElementById("custom-options-row").hidden = uiState.tableView !== "custom";
   definedBenefitFields.hidden = !Boolean(state.definedBenefitEnabled);
   savingsFields.hidden = state.useSavings === false;
   partnerDetailFields.hidden = state.partnerDetailsEnabled === false;
@@ -921,7 +919,22 @@ function calculateProjection(source) {
     const exceptionalSavingsExpense = eventsThisYear
       .filter((ev) => ev.type === "expense" && ev.routing === "savings")
       .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
-    const totalIncomeRequired = incomeRequired + carCost + exceptionalExpense;
+    // If "use savings for car" is on, draw car cost from personal savings first
+    // (Premium Bonds → ISA → Bank — most tax-efficient order), remainder falls to income
+    const carFromSavingsAlloc = source.useSavingsForCar && carCost > 0
+      ? (() => {
+          const pbAvail  = premiumBondsBalance;
+          const isaAvail = isaSavingsBalance;
+          const bkAvail  = bankSavingsBalance;
+          let rem = carCost;
+          const fromPb  = Math.min(pbAvail,  rem); rem -= fromPb;
+          const fromIsa = Math.min(isaAvail, rem); rem -= fromIsa;
+          const fromBk  = Math.min(bkAvail,  rem); rem -= fromBk;
+          return { fromPb, fromIsa, fromBk, carCoveredBySavings: carCost - rem };
+        })()
+      : { fromPb: 0, fromIsa: 0, fromBk: 0, carCoveredBySavings: 0 };
+    const carCostViaIncome = carCost - carFromSavingsAlloc.carCoveredBySavings;
+    const totalIncomeRequired = incomeRequired + carCostViaIncome + exceptionalExpense;
 
     const partnerWorkIncome =
       partnerDetailsEnabled && partnerAge < 68
@@ -1076,6 +1089,11 @@ function calculateProjection(source) {
       Math.max(0, partnerSavingsAvailableForTaxOptimisation - partnerSavingsUsedForTaxSmoothing),
     );
     savingsAllocation.partnerSavingsUsed += partnerSavingsUsedForTaxSmoothing;
+    // Add car-from-savings deductions into the allocation so balances and chart bars reflect it
+    savingsAllocation.premiumBondsUsed += carFromSavingsAlloc.fromPb;
+    savingsAllocation.isaSavingsUsed   += carFromSavingsAlloc.fromIsa;
+    savingsAllocation.bankSavingsUsed  += carFromSavingsAlloc.fromBk;
+    sourcedFromSavings += carFromSavingsAlloc.carCoveredBySavings;
     let incomeTotal = baseIncomeTotal + definedBenefitLumpSum + taxFreeCashActual;
     let incomeCovered = incomeTotal + totalTaxableWithdrawal + sourcedFromSavings;
     let taxFreeCashExemptFromPairing = Math.min(taxFreeCashActual, forcedTaxFreeCash);
@@ -1260,6 +1278,7 @@ function calculateProjection(source) {
       taxFreeCash: taxFreeCashActual,
       tflsBy75Target,
       sourcedFromSavings,
+      carCoveredBySavings: carFromSavingsAlloc.carCoveredBySavings,
       bankSavingsUsed: savingsAllocation.bankSavingsUsed,
       premiumBondsUsed: savingsAllocation.premiumBondsUsed,
       isaSavingsUsed: savingsAllocation.isaSavingsUsed,
@@ -1569,6 +1588,8 @@ function renderSummary(projection) {
   const totalTaxPaid = projection.rows.reduce((sum, row) => sum + row.estimatedTax, 0);
   const averageTaxPerYear = projection.rows.length > 0 ? totalTaxPaid / projection.rows.length : 0;
   const averageTaxPerMonth = averageTaxPerYear / 12;
+  const totalBasicRateTax = projection.rows.reduce((sum, row) => sum + (row.basicRateTax || 0), 0);
+  const totalHigherRateTax = projection.rows.reduce((sum, row) => sum + (row.higherRateTax || 0), 0);
   const pensionDrawdownRows = projection.rows.filter((row) => row.grossPensionWithdrawal > 0.01 || row.taxFreeCash > 0.01);
   const averageEffectiveTaxRate = pensionDrawdownRows.length > 0
     ? pensionDrawdownRows.reduce((sum, row) => {
@@ -1581,6 +1602,7 @@ function renderSummary(projection) {
   const totalTflsTaken = totalPensionTflsTaken + totalDefinedBenefitLumpSum;
   const totalPlanShortfall = projection.rows.reduce((sum, row) => sum + row.incomeShortfall, 0);
   const cards = [
+    // ── Row 1: Plan overview + savings at retirement ─────────────────────────
     {
       label: "Plan dates",
       split: [
@@ -1604,17 +1626,22 @@ function renderSummary(projection) {
         : `${PERCENT.format(projection.preRetirementGrowthRate)} before retirement, ${PERCENT.format(projection.postRetirementGrowthRate)} after retirement`,
     },
     {
-      label: "Uncrystallised at retirement",
-      value: formatCurrency(projection.retirementUncrystallisedPot),
-      note: `Crystallised ${formatCurrency(projection.retirementCrystallisedPot)}`,
+      label: "My savings at retirement",
+      value: formatCurrency(projection.personalSavingsAtRetirement),
+      panel: [
+        { label: "ISA",         value: formatCurrency(projection.personalIsaSavingsAtRetirement) },
+        { label: "Bank",        value: formatCurrency(projection.personalBankSavingsAtRetirement) },
+        { label: "Prem. Bonds", value: formatCurrency(projection.personalPremiumBondsAtRetirement) },
+      ],
     },
     {
-      label: "Total plan shortfall",
-      value: formatCurrency(totalPlanShortfall),
-      note: `Across ${NUMBER.format(projection.rows.length)} retirement years shown`,
-      warning: totalPlanShortfall > 0.01,
-      success: totalPlanShortfall <= 0.01,
+      label: "Partner savings at retirement",
+      value: formatCurrency(projection.partnerSavingsAtRetirement),
+      panel: [
+        { label: "Growth rate", value: PERCENT.format(state.partnerSavingsGrowthRate) },
+      ],
     },
+    // ── Row 2: Plan end figures + savings at plan end ────────────────────────
     {
       label: "End pot",
       value: formatCurrency(lastRow?.totalPotAfterGrowth ?? 0),
@@ -1623,14 +1650,42 @@ function renderSummary(projection) {
         : `At plan end ${projection.planEndYear} (age ${projection.planEndAge})`,
     },
     {
-      label: "Savings at plan end",
-      value: formatCurrency(lastRow?.savingsLeft ?? projection.totalSeparateSavingsAtRetirement),
-      note: `ISA ${formatCurrency(lastRow?.isaSavingsLeft ?? projection.personalIsaSavingsAtRetirement)}, bank ${formatCurrency(lastRow?.bankSavingsLeft ?? projection.personalBankSavingsAtRetirement)}, Premium Bonds ${formatCurrency(lastRow?.premiumBondsLeft ?? projection.personalPremiumBondsAtRetirement)}, partner ${formatCurrency(lastRow?.partnerSavingsLeft ?? projection.partnerSavingsAtRetirement)}`,
+      label: "Uncrystallised at retirement",
+      value: formatCurrency(projection.retirementUncrystallisedPot),
+      note: `Crystallised ${formatCurrency(projection.retirementCrystallisedPot)}`,
+    },
+    {
+      label: "My savings at plan end",
+      value: formatCurrency((lastRow?.isaSavingsLeft ?? 0) + (lastRow?.bankSavingsLeft ?? 0) + (lastRow?.premiumBondsLeft ?? 0)),
+      panel: [
+        { label: "ISA",          value: formatCurrency(lastRow?.isaSavingsLeft ?? 0) },
+        { label: "Bank",         value: formatCurrency(lastRow?.bankSavingsLeft ?? 0) },
+        { label: "Prem. Bonds",  value: formatCurrency(lastRow?.premiumBondsLeft ?? 0) },
+        { label: "Interest tax", value: formatCurrency(projection.totalBankInterestTax) },
+      ],
+    },
+    {
+      label: "Partner savings at plan end",
+      value: formatCurrency(lastRow?.partnerSavingsLeft ?? 0),
+    },
+    // ── Row 3: Plan health metrics ───────────────────────────────────────────
+    {
+      label: "Total plan shortfall",
+      value: formatCurrency(totalPlanShortfall),
+      note: `Across ${NUMBER.format(projection.rows.length)} retirement years shown`,
+      warning: totalPlanShortfall > 0.01,
+      success: totalPlanShortfall <= 0.01,
     },
     {
       label: "Total tax paid",
       value: formatCurrency(totalTaxPaid),
-      note: `${formatCurrency(averageTaxPerYear)}/Yr - ${formatCurrency(averageTaxPerMonth)}/Mth - avg eff ${PERCENT.format(averageEffectiveTaxRate)}`,
+      panel: [
+        { label: "Per year",        value: formatCurrency(averageTaxPerYear) },
+        { label: "Per month",       value: formatCurrency(averageTaxPerMonth) },
+        { label: "Eff tax rate",    value: PERCENT.format(averageEffectiveTaxRate) },
+        { label: "Basic rate tax",  value: formatCurrency(totalBasicRateTax) },
+        { label: "Higher rate tax", value: formatCurrency(totalHigherRateTax) },
+      ],
     },
     {
       label: "Lump sum allowance left",
@@ -1641,41 +1696,6 @@ function renderSummary(projection) {
       label: "Tax-free lump sums",
       value: formatCurrency(totalTflsTaken),
       note: `Pension ${formatCurrency(totalPensionTflsTaken)}, DB ${formatCurrency(totalDefinedBenefitLumpSum)}`,
-    },
-    {
-      label: "Separate savings total",
-      value: formatCurrency(projection.totalSeparateSavingsAtRetirement),
-      note: `ISA ${formatCurrency(projection.personalIsaSavingsAtRetirement)}, bank ${formatCurrency(projection.personalBankSavingsAtRetirement)}, Premium Bonds ${formatCurrency(projection.personalPremiumBondsAtRetirement)}, partner ${formatCurrency(projection.partnerSavingsAtRetirement)}`,
-    },
-    {
-      label: "ISA savings at retirement",
-      value: formatCurrency(projection.personalIsaSavingsAtRetirement),
-      note: `Tax-free growth rate ${PERCENT.format(state.personalIsaGrowthRate)}`,
-    },
-    {
-      label: "Bank savings at retirement",
-      value: formatCurrency(projection.personalBankSavingsAtRetirement),
-      note: `Interest rate ${PERCENT.format(state.personalBankInterestRate)}`,
-    },
-    {
-      label: "Premium Bonds at retirement",
-      value: formatCurrency(projection.personalPremiumBondsAtRetirement),
-      note: `Assumed growth/prize rate ${PERCENT.format(state.personalPremiumBondsGrowthRate)}`,
-    },
-    {
-      label: "Savings interest tax",
-      value: formatCurrency(projection.totalBankInterestTax),
-      note: `PSA used ${formatCurrency(projection.totalPsaUsed)} across projected years`,
-    },
-    {
-      label: "My savings at retirement",
-      value: formatCurrency(projection.personalSavingsAtRetirement),
-      note: `ISA + bank before retirement`,
-    },
-    {
-      label: "Partner savings at retirement",
-      value: formatCurrency(projection.partnerSavingsAtRetirement),
-      note: `Growth rate ${PERCENT.format(state.partnerSavingsGrowthRate)}`,
     },
   ];
 
@@ -1725,6 +1745,39 @@ function renderSummary(projection) {
         splitWrap.appendChild(itemElement);
       });
       cardElement.appendChild(splitWrap);
+    } else if (card.panel) {
+      cardElement.classList.add("summary-card-panel");
+      clone.querySelector(".summary-value").remove();
+      clone.querySelector(".summary-note").remove();
+      const body = document.createElement("div");
+      body.className = "summary-panel-body";
+      const left = document.createElement("div");
+      const valEl = document.createElement("p");
+      valEl.className = "summary-value";
+      valEl.textContent = card.value;
+      left.appendChild(valEl);
+      if (card.note) {
+        const noteEl = document.createElement("p");
+        noteEl.className = "summary-note";
+        noteEl.style.height = "auto";
+        noteEl.style.webkitLineClamp = "unset";
+        noteEl.style.display = "block";
+        noteEl.textContent = card.note;
+        left.appendChild(noteEl);
+      }
+      const right = document.createElement("div");
+      right.className = "summary-panel-breakdown";
+      (card.panel || []).forEach(({ label, value }) => {
+        const row = document.createElement("div");
+        row.className = "summary-panel-breakdown-item";
+        row.innerHTML = `<span></span><span></span>`;
+        row.children[0].textContent = label;
+        row.children[1].textContent = value;
+        right.appendChild(row);
+      });
+      body.appendChild(left);
+      body.appendChild(right);
+      cardElement.appendChild(body);
     } else {
       clone.querySelector(".summary-value").textContent = card.value;
       clone.querySelector(".summary-note").textContent = card.note;
@@ -2994,19 +3047,26 @@ function renderStackedSavingsChartCanvas({ canvas, projection, showPreRetirement
 }
 
 function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
+  // Add computed split-savings keys to each row (my personal vs partner)
+  const rows = projection.rows.map((row) => ({
+    ...row,
+    _mySavingsUsed:      (row.bankSavingsUsed || 0) + (row.isaSavingsUsed || 0) + (row.premiumBondsUsed || 0),
+    _partnerSavingsUsed: row.partnerSavingsUsed || 0,
+  }));
   const incomeSources = [
-    { key: "partnerIncome", label: "Partner work", color: "#2563eb" },
-    { key: "partnerStatePension", label: "Partner state pension", color: "#16a34a" },
-    { key: "partnerWorkPension", label: "Partner work pension", color: "#65a30d" },
-    { key: "ownStatePension", label: "My state pension", color: "#0f766e" },
-    { key: "definedBenefitIncome", label: "My DB pension", color: "#0891b2" },
-    { key: "definedBenefitLumpSum", label: "DB lump sum", color: "#06b6d4" },
-    { key: "taxFreeCash", label: "TFLS", color: "#f59e0b" },
+    { key: "partnerIncome",          label: "Partner work",             color: "#2563eb" },
+    { key: "partnerStatePension",    label: "Partner state pension",    color: "#16a34a" },
+    { key: "partnerWorkPension",     label: "Partner work pension",     color: "#65a30d" },
+    { key: "ownStatePension",        label: "My state pension",         color: "#0f766e" },
+    { key: "definedBenefitIncome",   label: "My DB pension",            color: "#0891b2" },
+    { key: "definedBenefitLumpSum",  label: "DB lump sum",              color: "#06b6d4" },
+    { key: "taxFreeCash",            label: "TFLS",                     color: "#f59e0b" },
     { key: "grossPensionWithdrawal", label: "Taxable pension withdrawn", color: "#7c3aed" },
-    { key: "sourcedFromSavings", label: "Savings", color: "#db2777" },
+    { key: "_mySavingsUsed",         label: "My savings",               color: "#db2777" },
+    { key: "_partnerSavingsUsed",    label: "Partner savings",          color: "#f472b6" },
   ];
   const needSeries = { key: "totalIncomeRequired", label: "Income needed", color: "#b45309", dash: [7, 5] };
-  const stackedTotals = projection.rows.map((row) =>
+  const stackedTotals = rows.map((row) =>
     incomeSources.reduce((sum, source) => sum + Math.max(0, Number(row[source.key]) || 0), 0)
   );
 
@@ -3024,9 +3084,9 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const axisStep = 10000;
-  const maxValue = Math.max(axisStep, Math.ceil(Math.max(...stackedTotals, ...projection.rows.map((row) => row.totalIncomeRequired)) / axisStep) * axisStep);
+  const maxValue = Math.max(axisStep, Math.ceil(Math.max(...stackedTotals, ...rows.map((row) => row.totalIncomeRequired)) / axisStep) * axisStep);
   const yFor = (value) => pad.top + plotHeight - (value / maxValue) * plotHeight;
-  const barBand = plotWidth / Math.max(1, projection.rows.length);
+  const barBand = plotWidth / Math.max(1, rows.length);
   const xFor = (index) => pad.left + index * barBand + barBand / 2;
   const barGap = 3;
   const barWidth = Math.max(6, Math.min(26, barBand - barGap));
@@ -3046,14 +3106,12 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
     ctx.fillText(formatCurrency(value), 8, y);
   }
 
-  projection.rows.forEach((row, index) => {
+  rows.forEach((row, index) => {
     const x = xFor(index) - barWidth / 2;
     let stackedValue = 0;
     incomeSources.forEach((source) => {
       const value = Math.max(0, Number(row[source.key]) || 0);
-      if (value <= 0) {
-        return;
-      }
+      if (value <= 0) return;
       const y = yFor(stackedValue + value);
       const segmentHeight = yFor(stackedValue) - y;
       ctx.fillStyle = source.color;
@@ -3063,14 +3121,10 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
   });
 
   ctx.beginPath();
-  projection.rows.forEach((row, index) => {
+  rows.forEach((row, index) => {
     const x = xFor(index);
     const y = yFor(row[needSeries.key]);
-    if (index === 0) {
-      ctx.moveTo(x, y);
-    } else {
-      ctx.lineTo(x, y);
-    }
+    if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
   ctx.strokeStyle = needSeries.color;
   ctx.lineWidth = 3;
@@ -3079,20 +3133,16 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
   ctx.setLineDash([]);
 
   const targetYearLabels = Math.max(4, Math.min(8, Math.floor(plotWidth / 90)));
-  const yearStep = Math.max(1, Math.ceil((projection.rows.length - 1) / Math.max(1, targetYearLabels - 1)));
+  const yearStep = Math.max(1, Math.ceil((rows.length - 1) / Math.max(1, targetYearLabels - 1)));
   const yearLabelIndexes = [];
-  for (let index = 0; index < projection.rows.length; index += yearStep) {
-    yearLabelIndexes.push(index);
-  }
-  if (yearLabelIndexes[yearLabelIndexes.length - 1] !== projection.rows.length - 1) {
-    yearLabelIndexes.push(projection.rows.length - 1);
-  }
+  for (let index = 0; index < rows.length; index += yearStep) yearLabelIndexes.push(index);
+  if (yearLabelIndexes[yearLabelIndexes.length - 1] !== rows.length - 1) yearLabelIndexes.push(rows.length - 1);
 
   ctx.fillStyle = cs.labelColor;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   yearLabelIndexes.forEach((rowIndex) => {
-    const row = projection.rows[rowIndex];
+    const row = rows[rowIndex];
     const x = xFor(rowIndex);
     ctx.fillText(String(row.calendarYear), x, height - 34);
     ctx.fillText(`(age ${row.age})`, x, height - 18);
@@ -3128,19 +3178,19 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
   });
 
   // ── Event stars ───────────────────────────────────────────────────────────
-  projection.rows.forEach((row, index) => {
+  rows.forEach((row, index) => {
     if (row.eventTitles?.length) {
       drawEventStar(ctx, xFor(index), pad.top + plotHeight - 12);
     }
   });
 
   // ── Hover tooltip ────────────────────────────────────────────────────────
-  if (hoverX === null || projection.rows.length < 2) return;
+  if (hoverX === null || rows.length < 2) return;
 
-  const n = projection.rows.length;
+  const n = rows.length;
   const clampedX = Math.max(pad.left, Math.min(width - pad.right, hoverX));
   const rowIndex = Math.min(n - 1, Math.max(0, Math.floor((clampedX - pad.left) / barBand)));
-  const row = projection.rows[rowIndex];
+  const row = rows[rowIndex];
   const hx = xFor(rowIndex);
 
   // Hairline
@@ -3442,6 +3492,7 @@ function exportPlan() {
       summary: buildProjectionExportSummary(projection),
       columns: Object.keys(rows[0] || {}),
       rows,
+      preRetirementRows: (projection.preRetirementRows || []).map((row) => plainObjectForExport(row)),
     },
     chart: {
       stackedBarSeries: [
@@ -3496,6 +3547,35 @@ function exportTableToExcel() {
     return;
   }
 
+  // ── Pre-retirement section ───────────────────────────────────────────────
+  const projection = calculateProjection(state);
+  const preRows = projection.preRetirementRows || [];
+  const preColSpan = headerCells.length;
+  const preCols = [
+    ["calendarYear",     "Calendar Year"],
+    ["age",              "Age"],
+    ["totalPotAfterGrowth", "Pension Pot"],
+    ["premiumBondsLeft", "Premium Bonds"],
+    ["isaSavingsLeft",   "ISA"],
+    ["bankSavingsLeft",  "Bank Savings"],
+    ["partnerSavingsLeft","Partner Savings"],
+    ["eventTitles",      "Events"],
+  ];
+  const preHeaderHtml = `<tr style="background:#d0e8ff">${preCols.map(([, label]) => `<th colspan="${Math.max(1, Math.floor(preColSpan / preCols.length))}">${escapeHtml(label)}</th>`).join("")}</tr>`;
+  const preBodyHtml = preRows.map((row) =>
+    `<tr>${preCols.map(([key]) => {
+      const val = row[key];
+      const display = Array.isArray(val) ? val.join(", ") : (typeof val === "number" ? Math.round(val) : (val ?? ""));
+      return `<td>${escapeHtml(String(display))}</td>`;
+    }).join("")}</tr>`
+  ).join("");
+  const preTableHtml = preRows.length ? `
+    <tr><th colspan="${preColSpan}" style="background:#2563eb;color:#fff;padding:6px">Pre-Retirement Growth (${projection.retirementYear - (preRows[0]?.calendarYear ?? projection.retirementYear)} years to retirement)</th></tr>
+    ${preHeaderHtml}${preBodyHtml}
+    <tr><td colspan="${preColSpan}" style="background:#f0f4ff;font-style:italic">↑ Pre-retirement phase &nbsp;&nbsp; ↓ Retirement phase (Year 1 = ${projection.retirementYear}, age ${state.retirementAge})</td></tr>
+  ` : "";
+
+  // ── Post-retirement section ──────────────────────────────────────────────
   const headerHtml = `<tr>${headerCells.map((cell) => `<th>${escapeHtml(cell.textContent || "")}</th>`).join("")}</tr>`;
   const calcRowHtml = `<tr>${columns.map(([key, label], index) => {
     const note = index === 0
@@ -3520,7 +3600,7 @@ function exportTableToExcel() {
   <body>
     <table>
       <thead>${headerHtml}</thead>
-      <tbody>${calcRowHtml}${bodyHtml}</tbody>
+      <tbody>${preTableHtml}${calcRowHtml}${bodyHtml}</tbody>
     </table>
   </body>
 </html>`;
@@ -3721,6 +3801,32 @@ function exportFormulaWorkbookToExcel() {
     }).join("")}</tr>`;
   }).join("");
 
+  // ── Pre-retirement rows (simple values, no formulas) ─────────────────────
+  const preRetRows = projection.preRetirementRows || [];
+  const preRetCols = [
+    ["calendarYear",     "Calendar Year"],
+    ["age",              "Age"],
+    ["totalPotAfterGrowth", "Pension Pot"],
+    ["premiumBondsLeft", "Premium Bonds"],
+    ["isaSavingsLeft",   "ISA"],
+    ["bankSavingsLeft",  "Bank Savings"],
+    ["partnerSavingsLeft","Partner Savings"],
+    ["eventTitles",      "Events"],
+  ];
+  const preRetHeader = `<tr style="background:#dbeafe">${preRetCols.map(([, l]) => `<th>${escapeHtml(l)}</th>`).join("")}</tr>`;
+  const preRetBody = preRetRows.map((row) =>
+    `<tr>${preRetCols.map(([key]) => {
+      const val = row[key];
+      const display = Array.isArray(val) ? val.join(", ") : (typeof val === "number" ? Math.round(val) : (val ?? ""));
+      return `<td class="number">${escapeHtml(String(display))}</td>`;
+    }).join("")}</tr>`
+  ).join("");
+  const preRetSection = preRetRows.length ? `
+    <tr><th colspan="${preRetCols.length}" style="background:#1d4ed8;color:#fff;padding:6px">Pre-Retirement Growth (${state.currentYear} – ${state.retirementYear - 1})</th></tr>
+    ${preRetHeader}${preRetBody}
+    <tr><td colspan="${preRetCols.length}"></td></tr>
+  ` : "";
+
   const workbook = `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office"
       xmlns:x="urn:schemas-microsoft-com:office:excel"
@@ -3737,6 +3843,7 @@ function exportFormulaWorkbookToExcel() {
   </head>
   <body>
     <table>
+      ${preRetSection}
       <tr><th colspan="2">Assumptions</th></tr>
       ${assumptionRows}
       <tr><td colspan="${formulaColumns.length}"></td></tr>
@@ -3909,14 +4016,14 @@ granularCrystallisationToggle.addEventListener("change", () => {
   render();
 });
 
-showPotChartToggle.addEventListener("change", () => {
-  uiState.showPotChart = showPotChartToggle.checked;
+showPotChartToggle.addEventListener("click", () => {
+  uiState.showPotChart = !uiState.showPotChart;
   saveUiState();
   render();
 });
 
-savingsPreRetirementToggle.addEventListener("change", () => {
-  uiState.savingsShowPreRetirement = savingsPreRetirementToggle.checked;
+savingsPreRetirementToggle.addEventListener("click", () => {
+  uiState.savingsShowPreRetirement = !uiState.savingsShowPreRetirement;
   saveUiState();
   if (_savingsChartProjection && uiState.showPotChart) {
     renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection, showPreRetirement: uiState.savingsShowPreRetirement });
@@ -3964,14 +4071,14 @@ spendingChartCanvas.addEventListener("mouseleave", () => {
   renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms, monthly, freeOnly });
 });
 
-showIncomeChartToggle.addEventListener("change", () => {
-  uiState.showIncomeChart = showIncomeChartToggle.checked;
+showIncomeChartToggle.addEventListener("click", () => {
+  uiState.showIncomeChart = !uiState.showIncomeChart;
   saveUiState();
   render();
 });
 
-showSpendingChartToggle.addEventListener("change", () => {
-  uiState.showSpendingChart = showSpendingChartToggle.checked;
+showSpendingChartToggle.addEventListener("click", () => {
+  uiState.showSpendingChart = !uiState.showSpendingChart;
   saveUiState();
   render();
 });
@@ -3982,20 +4089,20 @@ showTableToggle.addEventListener("change", () => {
   render();
 });
 
-spendingChartRealToggle.addEventListener("change", () => {
-  uiState.spendingChartReal = spendingChartRealToggle.checked;
+spendingChartRealToggle.addEventListener("click", () => {
+  uiState.spendingChartReal = !uiState.spendingChartReal;
   saveUiState();
   render();
 });
 
-spendingChartMonthlyToggle.addEventListener("change", () => {
-  uiState.spendingChartMonthly = spendingChartMonthlyToggle.checked;
+spendingChartMonthlyToggle.addEventListener("click", () => {
+  uiState.spendingChartMonthly = !uiState.spendingChartMonthly;
   saveUiState();
   render();
 });
 
-spendingChartFreeToggle.addEventListener("change", () => {
-  uiState.spendingChartFreeOnly = spendingChartFreeToggle.checked;
+spendingChartFreeToggle.addEventListener("click", () => {
+  uiState.spendingChartFreeOnly = !uiState.spendingChartFreeOnly;
   saveUiState();
   render();
 });
@@ -4005,6 +4112,23 @@ togglePanelButton.addEventListener("click", () => {
   saveUiState();
   render();
 });
+
+// ── Import / Export dropdown ──────────────────────────────────────────────
+const ioMenuButton   = document.getElementById("io-menu-button");
+const ioMenuDropdown = document.getElementById("io-menu-dropdown");
+ioMenuButton.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const open = !ioMenuDropdown.hidden;
+  ioMenuDropdown.hidden = open;
+  ioMenuButton.textContent = open ? "Import / Export ▾" : "Import / Export ▴";
+});
+document.addEventListener("click", () => {
+  if (!ioMenuDropdown.hidden) {
+    ioMenuDropdown.hidden = true;
+    ioMenuButton.textContent = "Import / Export ▾";
+  }
+});
+ioMenuDropdown.addEventListener("click", (e) => e.stopPropagation());
 
 summaryGrid.addEventListener("click", (event) => {
   const button = event.target.closest("[data-retirement-year-step]");
@@ -4020,13 +4144,14 @@ toggleTableWidthButton.addEventListener("click", () => {
   render();
 });
 
-exportTableButton.addEventListener("click", exportTableToExcel);
-exportFormulaButton.addEventListener("click", exportFormulaWorkbookToExcel);
-exportPdfButton.addEventListener("click", exportPageToPdf);
-exportPlanButton.addEventListener("click", exportPlan);
+const closeIoMenu = () => { ioMenuDropdown.hidden = true; ioMenuButton.textContent = "Import / Export ▾"; };
+exportTableButton.addEventListener("click", () => { exportTableToExcel(); closeIoMenu(); });
+exportFormulaButton.addEventListener("click", () => { exportFormulaWorkbookToExcel(); closeIoMenu(); });
+exportPdfButton.addEventListener("click", () => { exportPageToPdf(); closeIoMenu(); });
+exportPlanButton.addEventListener("click", () => { exportPlan(); closeIoMenu(); });
 resetButton.addEventListener("click", resetState);
 versionBadge.addEventListener("click", showVersionChangeDate);
-importFile.addEventListener("change", importState);
+importFile.addEventListener("change", () => { importState(); closeIoMenu(); });
 window.addEventListener("resize", render);
 
 // ─── Share link ───────────────────────────────────────────────────────────
@@ -4357,6 +4482,9 @@ textHueSlider.addEventListener("input", () => {
 // ─── Income vertical sliders ───────────────────────────────────────────────
 
 function formatSliderValue(cfg, value) {
+  if (cfg.format === "percent") {
+    return `${(value * 100).toFixed(1)}%`;
+  }
   if (cfg.format === "number") {
     return `${NUMBER.format(value)}${cfg.unit ? " " + cfg.unit : ""}`;
   }
@@ -4371,14 +4499,44 @@ let activeIncomeField = null;
 let activeIncomeBtn = null;
 
 const INCOME_SLIDER_CONFIG = {
-  incomeRequired:    { label: "Income required",   min: 0,  max: 100000, step: 1000, format: "currency" },
-  incomeAfterYear10: { label: "After year 10",     min: 0,  max: 100000, step: 1000, format: "currency" },
-  billsAnnual:       { label: "Household bills",   min: 0,  max: 50000,  step: 1000, format: "currency" },
-  holidaysAnnual:    { label: "Holidays",          min: 0,  max: 25000,  step: 500,  format: "currency" },
-  carCost:           { label: "Car cost",          min: 0,  max: 100000, step: 1000, format: "currency" },
-  retirementAge:     { label: "Retirement age",    min: () => state.currentAge, max: 70,  step: 1, format: "number", unit: "yrs" },
-  planYears:         { label: "Plan years",        min: 1,                       max: 35,  step: 1, format: "number", unit: "yrs" },
-  planToAge:         { label: "Plan to age",       min: () => state.currentAge, max: 100, step: 1, format: "number", unit: "yrs" },
+  incomeRequired:      { label: "Income required",     min: 0,     max: 100000, step: 1000, format: "currency" },
+  incomeAfterYear10:   { label: "After year 10",       min: 0,     max: 100000, step: 1000, format: "currency" },
+  billsAnnual:         { label: "Household bills",     min: 0,     max: 50000,  step: 1000, format: "currency" },
+  holidaysAnnual:      { label: "Holidays",            min: 0,     max: 25000,  step: 500,  format: "currency" },
+  carCost:             { label: "Car cost",            min: 0,     max: 100000, step: 1000, format: "currency" },
+  retirementAge:       { label: "Retirement age",      min: () => state.currentAge, max: 70,  step: 1, format: "number", unit: "yrs" },
+  planYears:           { label: "Plan years",          min: 1,     max: 35,     step: 1,    format: "number", unit: "yrs" },
+  planToAge:           { label: "Plan to age",         min: () => state.currentAge, max: 100, step: 1, format: "number", unit: "yrs" },
+  // Savings (currency)
+  personalBankSavings:  { label: "Bank savings",            min: 0,     max: 200000, step: 1000,  format: "currency" },
+  personalIsaSavings:   { label: "ISA savings",             min: 0,     max: 200000, step: 1000,  format: "currency" },
+  personalPremiumBonds: { label: "Premium Bonds",           min: 0,     max: 50000,  step: 1000,  format: "currency" },
+  partnerSavings:       { label: "Partner savings",         min: 0,     max: 200000, step: 1000,  format: "currency" },
+  // State & work pensions (currency)
+  ownStatePension:      { label: "Own state pension",       min: 12000, max: 16000,  step: 100,   format: "currency" },
+  partnerStatePension:  { label: "Partner state pension",   min: 12000, max: 16000,  step: 100,   format: "currency" },
+  partnerWorkIncome:    { label: "Partner work income",     min: 0,     max: 30000,  step: 500,   format: "currency" },
+  partnerWorkPension:   { label: "Partner work pension",    min: 0,     max: 30000,  step: 500,   format: "currency" },
+  // CPI / inflation rates (0–10%, stored as decimal)
+  cpiRate:                    { label: "CPI rate",                  min: 0, max: 0.10, step: 0.005, format: "percent" },
+  partnerWorkCpiRate:         { label: "Partner work CPI",          min: 0, max: 0.10, step: 0.005, format: "percent" },
+  statePensionCpiRate:        { label: "Partner pension CPI",       min: 0, max: 0.10, step: 0.005, format: "percent" },
+  ownStatePensionGrowthRate:  { label: "State pension growth",      min: 0, max: 0.10, step: 0.005, format: "percent" },
+  taxAllowanceCpiRate:        { label: "Tax allowance CPI",         min: 0, max: 0.10, step: 0.005, format: "percent" },
+  taxBandCpiRate:             { label: "Tax bands CPI",             min: 0, max: 0.10, step: 0.005, format: "percent" },
+  // Growth rates (0–15%, stored as decimal)
+  growthLow:                  { label: "Low pre-retirement",        min: 0, max: 0.15, step: 0.005, format: "percent" },
+  postRetirementGrowthLow:    { label: "Low post-retirement",       min: 0, max: 0.15, step: 0.005, format: "percent" },
+  growthMid:                  { label: "Mid pre-retirement",        min: 0, max: 0.15, step: 0.005, format: "percent" },
+  postRetirementGrowthMid:    { label: "Mid post-retirement",       min: 0, max: 0.15, step: 0.005, format: "percent" },
+  growthHigh:                 { label: "High pre-retirement",       min: 0, max: 0.15, step: 0.005, format: "percent" },
+  postRetirementGrowthHigh:   { label: "High post-retirement",      min: 0, max: 0.15, step: 0.005, format: "percent" },
+  definedBenefitGrowthRate:   { label: "DB growth rate",            min: 0, max: 0.15, step: 0.005, format: "percent" },
+  // Savings growth & interest rates (0–15%, stored as decimal)
+  personalBankInterestRate:       { label: "Bank interest",         min: 0, max: 0.15, step: 0.005, format: "percent" },
+  personalIsaGrowthRate:          { label: "ISA growth",            min: 0, max: 0.15, step: 0.005, format: "percent" },
+  personalPremiumBondsGrowthRate: { label: "Premium Bonds growth",  min: 0, max: 0.15, step: 0.005, format: "percent" },
+  partnerSavingsGrowthRate:       { label: "Partner savings growth", min: 0, max: 0.15, step: 0.005, format: "percent" },
 };
 
 function positionIncomeSlider(btn) {
@@ -4443,6 +4601,36 @@ document.querySelectorAll(".income-popup-btn").forEach((btn) => {
 
     positionIncomeSlider(btn);
     incomeVSliderPopup.hidden = false;
+    // Auto-focus the range input so arrow keys work immediately
+    requestAnimationFrame(() => incomeVSliderInput.focus());
+  });
+});
+
+// ── Arrow-key nudge on all data-field inputs ──────────────────────────────
+// Up/Down arrows step by the slider config step (or input's own step attr).
+// Prevents browser default (which only steps by 1 on number inputs).
+document.querySelectorAll("input[data-field]").forEach((input) => {
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const fieldKey = input.dataset.field;
+    const cfg = INCOME_SLIDER_CONFIG[fieldKey];
+    const step = cfg ? cfg.step : (Number(input.step) || 1);
+    const resolvedMin = cfg ? (typeof cfg.min === "function" ? cfg.min() : cfg.min) : -Infinity;
+    const resolvedMax = cfg ? (typeof cfg.max === "function" ? cfg.max() : cfg.max) :  Infinity;
+    const current = Number(state[fieldKey]) || 0;
+    const next = e.key === "ArrowUp"
+      ? Math.min(resolvedMax, current + step)
+      : Math.max(resolvedMin, current - step);
+    // Round to avoid floating point drift (e.g. 0.005 steps)
+    const decimals = String(step).includes(".") ? String(step).split(".")[1].length : 0;
+    const rounded = Number(next.toFixed(decimals));
+    state[fieldKey] = rounded;
+    state = normaliseState(state, fieldKey);
+    input.value = cfg?.format === "percent" ? (rounded * 100).toFixed(1)
+                : cfg?.format === "number"  ? rounded
+                : rounded;
+    render();
   });
 });
 
