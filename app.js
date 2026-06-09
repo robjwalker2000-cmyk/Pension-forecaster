@@ -60,8 +60,8 @@ const DEFAULT_STATE = {
   carStartYear: 2,
   applyCpiIncome: true,
   incomeValuesRelativeToToday: true,
-  applyCpiBills: true,
-  applyCpiHolidays: true,
+  applyCpiSpending: true,
+  applyCpiCar: false,
   cpiRate: 0.025,
   partnerDetailsEnabled: true,
   partnerBirthYear: 1971,
@@ -194,6 +194,7 @@ const spendingChartCanvas = document.getElementById("spending-chart");
 const spendingChartRealToggle = document.getElementById("spending-chart-real-toggle");
 const spendingChartMonthlyToggle = document.getElementById("spending-chart-monthly-toggle");
 const spendingChartFreeToggle = document.getElementById("spending-chart-free-toggle");
+const spendingChartTaxToggle  = document.getElementById("spending-chart-tax-toggle");
 const spendingChartCaption = document.getElementById("spending-chart-caption");
 const layout = document.getElementById("layout");
 const tablePanel = document.querySelector(".table-panel");
@@ -242,6 +243,13 @@ function loadState() {
 
 function normaliseState(source, changedKey = null) {
   const next = { ...source };
+  // Migrate applyCpiBills + applyCpiHolidays → applyCpiSpending
+  if ((next.applyCpiBills !== undefined || next.applyCpiHolidays !== undefined) && next.applyCpiSpending === undefined) {
+    next.applyCpiSpending = (next.applyCpiBills !== false) || (next.applyCpiHolidays !== false);
+  }
+  delete next.applyCpiBills;
+  delete next.applyCpiHolidays;
+  if (next.applyCpiCar === undefined) next.applyCpiCar = false;
   // Migrate old boolean field to new enum
   if (next.usePartnerSavingsForTaxOptimisation !== undefined && next.savingsTaxOptimisation === undefined) {
     next.savingsTaxOptimisation = next.usePartnerSavingsForTaxOptimisation ? "balanced" : "my";
@@ -341,7 +349,7 @@ function loadUiState() {
       showTable: saved.showTable !== false,
       spendingChartReal: Boolean(saved.spendingChartReal),
       spendingChartMonthly: Boolean(saved.spendingChartMonthly),
-      spendingChartFreeOnly: Boolean(saved.spendingChartFreeOnly),
+      spendingChartMode: ["full","freeOnly","taxBreakdown"].includes(saved.spendingChartMode) ? saved.spendingChartMode : (saved.spendingChartFreeOnly ? "freeOnly" : "full"),
       savingsShowPreRetirement: Boolean(saved.savingsShowPreRetirement),
       tableExpanded: Boolean(saved.tableExpanded),
       customTableFields: Array.isArray(saved.customTableFields) ? saved.customTableFields : [],
@@ -360,7 +368,7 @@ function loadUiState() {
       showTable: true,
       spendingChartReal: false,
       spendingChartMonthly: false,
-      spendingChartFreeOnly: false,
+      spendingChartMode: "full",
       savingsShowPreRetirement: false,
       tableExpanded: false,
       customTableFields: [],
@@ -387,7 +395,8 @@ function applyUiState() {
   showTableToggle.checked = Boolean(uiState.showTable);
   spendingChartRealToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.spendingChartReal));
   spendingChartMonthlyToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.spendingChartMonthly));
-  spendingChartFreeToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.spendingChartFreeOnly));
+  spendingChartFreeToggle.classList.toggle("chart-toggle-chip-active", uiState.spendingChartMode === "freeOnly");
+  spendingChartTaxToggle.classList.toggle("chart-toggle-chip-active",  uiState.spendingChartMode === "taxBreakdown");
   savingsPreRetirementToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.savingsShowPreRetirement));
   tablePanel.classList.toggle("table-panel-expanded", Boolean(uiState.tableExpanded));
   toggleTableWidthButton.textContent = uiState.tableExpanded ? "-" : "+";
@@ -911,12 +920,12 @@ function calculateProjection(source) {
         : yearIndex - 11;
     const incomeRequired = compoundAnnual(incomeBase, source.cpiRate, incomeCpiYears, source.applyCpiIncome);
     const spendingCpiYears = yearsToRetirement + yearIndex - 1;
-    const holidays = compoundAnnual(source.holidaysAnnual, source.cpiRate, spendingCpiYears, source.applyCpiHolidays);
+    const holidays = compoundAnnual(source.holidaysAnnual, source.cpiRate, spendingCpiYears, source.applyCpiSpending);
     const carCost =
       source.carCost > 0
       && yearIndex >= source.carStartYear
       && (yearIndex - source.carStartYear) % source.carFrequencyYears === 0
-        ? source.carCost
+        ? compoundAnnual(source.carCost, source.cpiRate, spendingCpiYears, source.applyCpiCar)
         : 0;
     const eventsThisYear = (source.specialEvents || []).filter((ev) =>
       ev.yearType === "relative" ? yearIndex === Number(ev.year) : calendarYear === Number(ev.year)
@@ -1106,7 +1115,7 @@ function calculateProjection(source) {
       bankInterestTaxBreakdown,
       estimatedTax,
     } = estimateTotalTaxWithBankInterest(myTaxableIncome, bankInterestGross, allowanceBase, taxRules);
-    const householdBills = compoundAnnual(source.billsAnnual, source.cpiRate, spendingCpiYears, source.applyCpiBills);
+    const householdBills = compoundAnnual(source.billsAnnual, source.cpiRate, spendingCpiYears, source.applyCpiSpending);
     const plannedSavingsUse = source.taxOptimisationMode
       ? Math.min(savingsAvailableForTaxOptimisation, taxOptimisedWithdrawal.savingsUsed)
       : 0;
@@ -1718,6 +1727,7 @@ function renderSummary(projection) {
     },
     {
       label: "Total tax paid",
+      wide: true,
       value: formatCurrency(totalTaxPaid),
       panel: [
         { label: "Per year",        value: formatCurrency(averageTaxPerYear) },
@@ -1728,14 +1738,9 @@ function renderSummary(projection) {
       ],
     },
     {
-      label: "Lump sum allowance left",
-      value: formatCurrency(lastRow?.remainingLumpSumAllowance ?? projection.remainingLumpSumAllowanceStart),
-      note: `Starting allowance left ${formatCurrency(projection.remainingLumpSumAllowanceStart)}`,
-    },
-    {
       label: "Tax-free lump sums",
       value: formatCurrency(totalTflsTaken),
-      note: `Pension ${formatCurrency(totalPensionTflsTaken)}, DB ${formatCurrency(totalDefinedBenefitLumpSum)}`,
+      note: `Pension ${formatCurrency(totalPensionTflsTaken)}, DB ${formatCurrency(totalDefinedBenefitLumpSum)} · LSA left ${formatCurrency(lastRow?.remainingLumpSumAllowance ?? projection.remainingLumpSumAllowanceStart)} (was ${formatCurrency(projection.remainingLumpSumAllowanceStart)})`,
     },
   ];
 
@@ -1745,6 +1750,7 @@ function renderSummary(projection) {
     const cardElement = clone.querySelector(".summary-card");
     cardElement.classList.toggle("summary-card-warning", Boolean(card.warning));
     cardElement.classList.toggle("summary-card-success", Boolean(card.success));
+    cardElement.classList.toggle("summary-card-wide", Boolean(card.wide));
     clone.querySelector(".summary-label").textContent = card.label;
     if (card.split) {
       cardElement.classList.add("summary-card-split");
@@ -2288,7 +2294,9 @@ function makeHatchPattern(ctx, color) {
   return ctx.createPattern(pc, "repeat");
 }
 
-function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, freeOnly, hoverX = null }) {
+function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, mode = "full", freeOnly, hoverX = null }) {
+  // Back-compat: legacy freeOnly boolean
+  if (freeOnly !== undefined) mode = freeOnly ? "freeOnly" : "full";
   const cs = getChartStyle();
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
@@ -2313,7 +2321,10 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, fre
   const computeFreeCash = (row, yi) =>
     adjust(row.excessNet - row.carCost, yi);
 
-  const spendKeys = freeOnly ? [] : [
+  const isFreeOnly     = mode === "freeOnly";
+  const isTaxBreakdown = mode === "taxBreakdown";
+
+  const spendKeys = isFreeOnly ? [] : [
     { key: "householdBills", label: "Bills",     color: "#3b82f6" },
     { key: "holidays",       label: "Holidays",  color: "#10b981" },
     { key: "carCost",        label: "Car",       color: "#f59e0b" },
@@ -2326,9 +2337,13 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, fre
     const surplus   = Math.max(0, freeCash);
     const shortfall = Math.min(0, freeCash); // ≤ 0
     const spending  = spendKeys.map(s => ({ ...s, v: Math.max(0, adjust(Number(row[s.key]) || 0, yi)) }));
-    const tax       = freeOnly ? 0 : Math.max(0, adjust(row.estimatedTax, yi));
-    const stackTop  = spending.reduce((s, d) => s + d.v, 0) + surplus + tax;
-    return { spending, tax, surplus, shortfall, stackTop };
+    const tax       = isFreeOnly ? 0 : Math.max(0, adjust(row.estimatedTax, yi));
+    const basicTax  = isTaxBreakdown ? Math.max(0, adjust(row.basicRateTax  || 0, yi)) : 0;
+    const higherTax = isTaxBreakdown ? Math.max(0, adjust(row.higherRateTax || 0, yi)) : 0;
+    const stackTop  = isTaxBreakdown
+      ? spending.reduce((s, d) => s + d.v, 0) + surplus + basicTax + higherTax
+      : spending.reduce((s, d) => s + d.v, 0) + surplus + tax;
+    return { spending, tax, basicTax, higherTax, surplus, shortfall, stackTop };
   });
 
   const axisStep = monthly ? 1000 : 10000;
@@ -2392,8 +2407,23 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, fre
       stack += d.surplus;
     }
 
-    // Tax — red outline on top
-    if (!freeOnly && d.tax > 0) {
+    if (isTaxBreakdown) {
+      // Basic rate tax — solid orange-red fill
+      if (d.basicTax > 0) {
+        const y = yFor(stack + d.basicTax);
+        ctx.fillStyle = "#f97316";
+        ctx.fillRect(x, y, barW, yFor(stack) - y);
+        stack += d.basicTax;
+      }
+      // Higher rate tax — solid red fill
+      if (d.higherTax > 0) {
+        const y = yFor(stack + d.higherTax);
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(x, y, barW, yFor(stack) - y);
+        stack += d.higherTax;
+      }
+    } else if (!isFreeOnly && d.tax > 0) {
+      // Normal mode — red outline on top
       const y    = yFor(stack + d.tax);
       const segH = yFor(stack) - y;
       ctx.strokeStyle = "#ef4444";
@@ -2437,14 +2467,22 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, fre
   });
 
   // Legend
-  const legendSources = freeOnly
+  const legendSources = isFreeOnly
     ? [{ label: "Free cash", color: "#8b5cf6" }]
-    : [
-        ...spendKeys,
-        { label: "Free cash",  color: "#8b5cf6" },
-        { label: "Tax",        color: "#ef4444", outline: true },
-        ...(hasShortfall ? [{ label: "Shortfall", color: "#ef4444", hatch: true }] : []),
-      ];
+    : isTaxBreakdown
+      ? [
+          ...spendKeys,
+          { label: "Free cash",       color: "#8b5cf6" },
+          { label: "Basic rate tax",  color: "#f97316" },
+          { label: "Higher rate tax", color: "#ef4444" },
+          ...(hasShortfall ? [{ label: "Shortfall", color: "#ef4444", hatch: true }] : []),
+        ]
+      : [
+          ...spendKeys,
+          { label: "Free cash",  color: "#8b5cf6" },
+          { label: "Tax",        color: "#ef4444", outline: true },
+          ...(hasShortfall ? [{ label: "Shortfall", color: "#ef4444", hatch: true }] : []),
+        ];
 
   let lx = pad.left, ly = 14;
   ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.font = cs.font;
@@ -2628,11 +2666,11 @@ function drawChartTooltip(ctx, { x: hx, y: ty, lines, width, padLeft, padRight, 
 // Last-render state for each canvas — lets mouse events re-render with hoverX
 let _savingsChartProjection = null;
 let _incomeChartState = null;   // { projection, mode, series, axisStep }
-let _spendingChartState = null; // { projection, realTerms, monthly, freeOnly }
+let _spendingChartState = null; // { projection, realTerms, monthly, mode }
 
 function renderChart(projection) {
   _savingsChartProjection = projection;
-  _spendingChartState = { projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, freeOnly: uiState.spendingChartFreeOnly };
+  _spendingChartState = { projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, mode: uiState.spendingChartMode };
   _incomeChartState = { projection };
   potChartWrap.hidden = !uiState.showPotChart;
   incomeChartWrap.hidden = !uiState.showIncomeChart;
@@ -2640,9 +2678,11 @@ function renderChart(projection) {
   chartEmptyMessage.hidden = uiState.showPotChart || uiState.showIncomeChart || uiState.showSpendingChart;
 
   if (uiState.showSpendingChart) {
-    renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, freeOnly: uiState.spendingChartFreeOnly });
+    const mode = uiState.spendingChartMode;
+    renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, mode });
     const captionParts = [];
-    if (uiState.spendingChartFreeOnly) captionParts.push("free cash only");
+    if (mode === "freeOnly") captionParts.push("free cash only");
+    if (mode === "taxBreakdown") captionParts.push("tax breakdown");
     if (uiState.spendingChartMonthly) captionParts.push("monthly averages");
     if (uiState.spendingChartReal) captionParts.push("today's money");
     spendingChartCaption.textContent = captionParts.length ? `Showing ${captionParts.join(", ")}` : "Annual nominal values";
@@ -3408,8 +3448,8 @@ function buildPlanExportAssumptions(projection) {
       cpiRate: state.cpiRate,
       applyCpiIncome: state.applyCpiIncome,
       incomeValuesRelativeToToday: state.incomeValuesRelativeToToday,
-      applyCpiBills: state.applyCpiBills,
-      applyCpiHolidays: state.applyCpiHolidays,
+      applyCpiSpending: state.applyCpiSpending,
+      applyCpiCar: state.applyCpiCar,
       applyTaxAllowanceCpi: state.applyTaxAllowanceCpi,
       taxAllowanceCpiRate: state.taxAllowanceCpiRate,
       taxBandCpiRate: state.taxBandCpiRate,
@@ -3744,9 +3784,9 @@ function exportFormulaWorkbookToExcel() {
     ["Higher rate", UK_TAX_RULES.higherRate],
     ["Additional rate", UK_TAX_RULES.additionalRate],
     ["Bills annual", state.billsAnnual],
-    ["Apply CPI to bills", state.applyCpiBills ? 1 : 0],
+    ["Apply CPI to spending", state.applyCpiSpending ? 1 : 0],
     ["Holidays annual", state.holidaysAnnual],
-    ["Apply CPI to holidays", state.applyCpiHolidays ? 1 : 0],
+    ["Apply CPI to car", state.applyCpiCar ? 1 : 0],
     ["Post-retirement growth rate", projection.postRetirementGrowthRate],
     ["Apply pot growth", state.applyPotGrowth ? 1 : 0],
     ["Year 1 TFLS enabled", state.take25PercentYear1 ? 1 : 0],
@@ -4153,14 +4193,14 @@ incomeChartCanvas.addEventListener("mouseleave", () => {
 // Spending breakdown chart hover tooltip
 spendingChartCanvas.addEventListener("mousemove", (e) => {
   if (!_spendingChartState) return;
-  const { projection, realTerms, monthly, freeOnly } = _spendingChartState;
+  const { projection, realTerms, monthly, mode } = _spendingChartState;
   const rect = spendingChartCanvas.getBoundingClientRect();
-  renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms, monthly, freeOnly, hoverX: e.clientX - rect.left });
+  renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms, monthly, mode, hoverX: e.clientX - rect.left });
 });
 spendingChartCanvas.addEventListener("mouseleave", () => {
   if (!_spendingChartState) return;
-  const { projection, realTerms, monthly, freeOnly } = _spendingChartState;
-  renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms, monthly, freeOnly });
+  const { projection, realTerms, monthly, mode } = _spendingChartState;
+  renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms, monthly, mode });
 });
 
 showIncomeChartToggle.addEventListener("click", () => {
@@ -4194,7 +4234,12 @@ spendingChartMonthlyToggle.addEventListener("click", () => {
 });
 
 spendingChartFreeToggle.addEventListener("click", () => {
-  uiState.spendingChartFreeOnly = !uiState.spendingChartFreeOnly;
+  uiState.spendingChartMode = uiState.spendingChartMode === "freeOnly" ? "full" : "freeOnly";
+  saveUiState();
+  render();
+});
+spendingChartTaxToggle.addEventListener("click", () => {
+  uiState.spendingChartMode = uiState.spendingChartMode === "taxBreakdown" ? "full" : "taxBreakdown";
   saveUiState();
   render();
 });
@@ -4430,7 +4475,7 @@ function buildOriginalBackground() {
   ].join(", ");
 }
 
-let activeTheme = "dark";
+let activeTheme = "metallic";
 let customBgHue = 175;
 let customTileHue = 220;
 let customCanvasHue = 220;
@@ -4483,13 +4528,13 @@ function saveThemePrefs() {
 function loadThemePrefs() {
   try {
     const saved = JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) || "{}");
-    activeTheme = ["original", "dark", "metallic", "custom"].includes(saved.theme) ? saved.theme : "dark";
+    activeTheme = ["original", "dark", "metallic", "custom"].includes(saved.theme) ? saved.theme : "metallic";
     customBgHue = Number.isFinite(saved.bgHue) ? saved.bgHue : 175;
     customTileHue = Number.isFinite(saved.tileHue) ? saved.tileHue : 220;
     customCanvasHue = Number.isFinite(saved.canvasHue) ? saved.canvasHue : 220;
     customTextHue = Number.isFinite(saved.textHue) ? saved.textHue : 220;
   } catch {
-    activeTheme = "dark";
+    activeTheme = "metallic";
   }
 }
 
@@ -4542,6 +4587,7 @@ document.querySelectorAll(".theme-chip").forEach((btn) => {
   btn.addEventListener("click", () => {
     activeTheme = btn.dataset.theme;
     themeCustomSliders.hidden = activeTheme !== "custom";
+    if (activeTheme !== "custom") themePanel.hidden = true;
     applyTheme(activeTheme, customBgHue, customTileHue, customCanvasHue, customTextHue);
     saveThemePrefs();
     render();
@@ -4601,6 +4647,7 @@ let activeIncomeField = null;
 let activeIncomeBtn = null;
 
 const INCOME_SLIDER_CONFIG = {
+  currentPot:          { label: "Total pension pot",   min: 0,     max: 1000000, step: 5000, format: "currency" },
   incomeRequired:      { label: "Income required",     min: 0,     max: 100000, step: 1000, format: "currency" },
   incomeAfterYear10:   { label: "After year 10",       min: 0,     max: 100000, step: 1000, format: "currency" },
   billsAnnual:         { label: "Household bills",     min: 0,     max: 50000,  step: 1000, format: "currency" },

@@ -14,7 +14,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.8b</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.8c</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme">✦</button>
               <div id="theme-panel" class="theme-panel" hidden>
                 <p class="theme-panel-title">Theme</p>
@@ -128,7 +128,7 @@
           <section class="panel">
             <h2>Growth & Pot</h2>
             <div class="field-grid">
-              <label><span>Total pension pot</span><input data-field="currentPot" type="number" step="1000" /></label>
+              <label class="income-slider-field"><span>Total pension pot</span><input data-field="currentPot" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="currentPot" aria-label="Quick slider for total pension pot">↕</button></label>
               <label><span>Already crystallised</span><input data-field="currentCrystallisedPot" type="number" step="1000" /></label>
               <label><span>Lump sum allowance used</span><input data-field="lumpSumAllowanceUsed" type="number" step="1000" /></label>
               <label class="scenario-label">
@@ -173,8 +173,8 @@
               <label><span>First car year</span><input data-field="carStartYear" type="number" step="1" min="1" /></label>
               <label class="toggle"><span>Apply CPI to income</span><input data-field="applyCpiIncome" type="checkbox" /></label>
               <label class="toggle"><span>Income values relative to today</span><input data-field="incomeValuesRelativeToToday" type="checkbox" /></label>
-              <label class="toggle"><span>Apply CPI to bills</span><input data-field="applyCpiBills" type="checkbox" /></label>
-              <label class="toggle"><span>Apply CPI to holidays</span><input data-field="applyCpiHolidays" type="checkbox" /></label>
+              <label class="toggle"><span>Apply CPI to spending</span><input data-field="applyCpiSpending" type="checkbox" /></label>
+              <label class="toggle"><span>Apply CPI to car</span><input data-field="applyCpiCar" type="checkbox" /></label>
               <label class="income-slider-field"><span>CPI rate</span><input data-field="cpiRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="cpiRate" aria-label="Quick slider for CPI rate">↕</button></label>
             </div>
           </section>
@@ -303,6 +303,7 @@
                   <div class="chart-toggle-chips chart-sub-controls">
                     <p id="spending-chart-caption"></p>
                     <button class="chart-toggle-chip" id="spending-chart-free-toggle" type="button">Free cash only</button>
+                    <button class="chart-toggle-chip" id="spending-chart-tax-toggle" type="button">Tax breakdown</button>
                     <button class="chart-toggle-chip" id="spending-chart-monthly-toggle" type="button">Monthly</button>
                     <button class="chart-toggle-chip" id="spending-chart-real-toggle" type="button">Today's money</button>
                   </div>
