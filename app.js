@@ -159,6 +159,9 @@ const exportPdfButton = document.getElementById("export-pdf-button");
 const exportPlanButton = document.getElementById("export-plan-button");
 const resetButton = document.getElementById("reset-button");
 const importFile = document.getElementById("import-file");
+const appViewsTrack = document.getElementById("app-views-track");
+const appViewButtons = Array.from(document.querySelectorAll(".app-view-button[data-app-view]"));
+const optimiserFrame = document.getElementById("optimiser-frame");
 const togglePanelButton = document.getElementById("toggle-panel-button");
 const tableViewButton   = document.getElementById("table-view-button");
 const tableViewDropdown = document.getElementById("table-view-dropdown");
@@ -229,8 +232,17 @@ function generateShareUrl() {
 const urlState = loadStateFromUrlHash();
 const shouldOpenBasicSetupOnLoad = !urlState && !hasSavedState();
 let state = urlState || loadState();
+let activeAppView = "forecaster";
+let optimiserFrameReady = false;
+let deferredChartRender = null;
 let uiState = loadUiState();
 let versionBadgeTimeout = null;
+const OPTIMISER_THEME_VARS = [
+  "--bg", "--bg-2", "--panel", "--panel-strong", "--panel-a", "--panel-b", "--panel-c",
+  "--card", "--card-2", "--card-warn", "--card-warn-2", "--card-success", "--card-success-2",
+  "--line", "--line-strong", "--text", "--muted", "--accent", "--accent-2", "--accent-glow",
+  "--danger", "--success", "--shadow", "--radius", "--input-bg", "--button-text", "--table-bg",
+];
 
 function loadState() {
   try {
@@ -1437,7 +1449,9 @@ function render() {
   renderCustomFieldChooser();
   renderTable(projection);
   renderChart(projection);
+  scheduleChartRedraw(projection);
   saveState();
+  syncOptimiserPlan();
 }
 
 function renderProjectionOnly() {
@@ -1446,7 +1460,67 @@ function renderProjectionOnly() {
   renderCustomFieldChooser();
   renderTable(projection);
   renderChart(projection);
+  scheduleChartRedraw(projection);
   saveState();
+  syncOptimiserPlan();
+}
+
+function scheduleChartRedraw(projection) {
+  if (deferredChartRender) cancelAnimationFrame(deferredChartRender);
+  deferredChartRender = requestAnimationFrame(() => {
+    deferredChartRender = null;
+    if (activeAppView === "forecaster") renderChart(projection);
+  });
+}
+
+function setAppView(view) {
+  activeAppView = view === "optimiser" ? "optimiser" : "forecaster";
+  const index = activeAppView === "optimiser" ? 1 : 0;
+  if (appViewsTrack) {
+    appViewsTrack.style.transform = `translateX(calc(${-index * 100}% - ${index * 40}px))`;
+  }
+  appViewButtons.forEach((button) => {
+    const isActive = button.dataset.appView === activeAppView;
+    button.classList.toggle("app-view-button-active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+  document.body.dataset.appView = activeAppView;
+  syncOptimiserTheme();
+  syncOptimiserPlan();
+}
+
+function getOptimiserThemePayload() {
+  const rootStyle = getComputedStyle(document.documentElement);
+  const bodyStyle = getComputedStyle(document.body);
+  const vars = {};
+  OPTIMISER_THEME_VARS.forEach((name) => {
+    const value = bodyStyle.getPropertyValue(name).trim() || rootStyle.getPropertyValue(name).trim();
+    if (value) vars[name] = value;
+  });
+  return {
+    theme: document.documentElement.getAttribute("data-theme") || activeTheme,
+    vars,
+    bodyFontFamily: bodyStyle.fontFamily,
+    bodyBackgroundColor: bodyStyle.backgroundColor,
+  };
+}
+
+function syncOptimiserTheme() {
+  if (!optimiserFrame?.contentWindow || !optimiserFrameReady) return;
+  const targetOrigin = window.location.protocol === "file:" ? "*" : window.location.origin;
+  optimiserFrame.contentWindow.postMessage({
+    type: "pension-forecaster-theme",
+    payload: getOptimiserThemePayload(),
+  }, targetOrigin);
+}
+
+function syncOptimiserPlan() {
+  if (!optimiserFrame?.contentWindow || !optimiserFrameReady) return;
+  const targetOrigin = window.location.protocol === "file:" ? "*" : window.location.origin;
+  optimiserFrame.contentWindow.postMessage({
+    type: "pension-forecaster-plan",
+    payload: buildCurrentPlanExport(),
+  }, targetOrigin);
 }
 
 function renderSpecialEventsPanel() {
@@ -3560,11 +3634,11 @@ function buildProjectionExportSummary(projection) {
   };
 }
 
-function exportPlan() {
+function buildCurrentPlanExport() {
   const projection = calculateProjection(state);
   const rows = projection.rows.map((row) => plainObjectForExport(row));
   const planName = String(state.planName || "").trim() || "Pension plan";
-  const payload = {
+  return {
     version: 2,
     schema: "pension-forecaster-plan-export",
     planName,
@@ -3601,7 +3675,11 @@ function exportPlan() {
       ],
     },
   };
+}
 
+function exportPlan() {
+  const payload = buildCurrentPlanExport();
+  const planName = payload.planName || "Pension plan";
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -4303,6 +4381,22 @@ exportPlanButton.addEventListener("click", () => { exportPlan(); closeIoMenu(); 
 resetButton.addEventListener("click", resetState);
 versionBadge.addEventListener("click", showVersionChangeDate);
 importFile.addEventListener("change", (e) => { importState(e); closeIoMenu(); });
+appViewButtons.forEach((button) => {
+  button.addEventListener("click", () => setAppView(button.dataset.appView));
+});
+optimiserFrame?.addEventListener("load", () => {
+  optimiserFrameReady = true;
+  syncOptimiserTheme();
+  syncOptimiserPlan();
+});
+window.addEventListener("message", (event) => {
+  if (window.location.protocol !== "file:" && event.origin !== window.location.origin) return;
+  if (event.data?.type !== "retirement-optimiser-height") return;
+  const height = Number(event.data.height);
+  if (Number.isFinite(height) && height > 400 && optimiserFrame) {
+    optimiserFrame.style.height = `${Math.ceil(height)}px`;
+  }
+});
 window.addEventListener("resize", render);
 
 // ─── Share link ───────────────────────────────────────────────────────────
@@ -4344,6 +4438,7 @@ copyShareLinkButton.addEventListener("click", async () => {
   shareCopyTimeout = setTimeout(() => { shareCopyConfirm.hidden = true; }, 2500);
 });
 
+setAppView("forecaster");
 render();
 if (shouldOpenBasicSetupOnLoad) {
   openBasicSetup();
@@ -4371,6 +4466,8 @@ const THEME_PRESETS = {
     "--muted": "#6c5b48",
     "--accent": "#0f766e",
     "--accent-2": "#b45309",
+    "--control-popover-bg": "#fffdf9",
+    "--control-range-track-bg": "#f3eadc",
     "--danger": "#b42318",
     "--success": "#15803d",
     "--shadow": "0 20px 50px rgba(56, 35, 7, 0.12), 0 4px 12px rgba(56, 35, 7, 0.08)",
@@ -4394,6 +4491,8 @@ const THEME_PRESETS = {
     "--accent": "#00d4b8",
     "--accent-2": "#7c3aed",
     "--accent-glow": "rgba(0, 212, 184, 0.28)",
+    "--control-popover-bg": "#08101c",
+    "--control-range-track-bg": "#121a2b",
     "--button-text": "#0b0f1a",
     "--danger": "#f87171",
     "--success": "#34d399",
@@ -4418,6 +4517,8 @@ const THEME_PRESETS = {
     "--accent": "#f4b35e",
     "--accent-2": "#55d6a5",
     "--accent-glow": "rgba(244, 179, 94, 0.28)",
+    "--control-popover-bg": "#2a1a0a",
+    "--control-range-track-bg": "#3a2510",
     "--button-text": "#2a1200",
     "--danger": "#ff7b7b",
     "--success": "#55d6a5",
@@ -4442,6 +4543,8 @@ const THEME_PRESETS = {
     "--accent": "#7ab8d8",
     "--accent-2": "#c8a060",
     "--accent-glow": "rgba(122, 184, 216, 0.28)",
+    "--control-popover-bg": "#26282e",
+    "--control-range-track-bg": "#181a1e",
     "--button-text": "#0e1012",
     "--danger": "#e07878",
     "--success": "#68c898",
@@ -4476,6 +4579,8 @@ function buildCustomVars(bgHue, tileHue, canvasHue, textHue) {
     "--accent": `hsl(${bgHue}, 80%, 55%)`,
     "--accent-2": `hsl(${(bgHue + 130) % 360}, 68%, 58%)`,
     "--accent-glow": `hsla(${bgHue}, 80%, 55%, 0.3)`,
+    "--control-popover-bg": `hsl(${tileHue}, 42%, ${Math.max(3, cardL - 2)}%)`,
+    "--control-range-track-bg": `hsl(${tileHue}, 38%, ${cardL + 8}%)`,
     "--button-text": `hsl(${canvasHue}, 30%, 10%)`,
     "--danger": "#f87171",
     "--success": "#34d399",
@@ -4571,8 +4676,11 @@ function applyPanelTransparency() {
 
   // Table background var — used by metallic/bright CSS table rules
   document.body.style.setProperty("--table-bg", `rgba(${r},${g},${bl},${c})`);
+  document.body.style.setProperty("--control-popover-bg", `rgb(${r},${g},${bl})`);
+  document.body.style.setProperty("--control-range-track-bg", `rgba(${r},${g},${bl},0.92)`);
 
   if (valueEl) valueEl.textContent = `${clear}%`;
+  syncOptimiserTheme();
 }
 
 function applyBackgroundMode() {
@@ -4620,9 +4728,9 @@ function applyTheme(theme, bgHue, tileHue, canvasHue, textHue) {
   applyPanelTransparency();
   applyBackgroundMode();
 
-  // Theme panel stays fully opaque regardless of transparency slider
+  // Popover controls stay fully opaque regardless of transparency slider
   const [pr, pg, pb] = getPanelBaseRgb();
-  document.body.style.setProperty("--theme-panel-bg", `rgba(${pr},${pg},${pb},0.92)`);
+  document.body.style.setProperty("--theme-panel-bg", `rgb(${pr},${pg},${pb})`);
 
   // data-theme drives font-family, h1 colour, table colours etc via CSS
   root.setAttribute("data-theme", theme);
@@ -4631,6 +4739,7 @@ function applyTheme(theme, bgHue, tileHue, canvasHue, textHue) {
   document.querySelectorAll(".theme-chip").forEach((btn) => {
     btn.classList.toggle("theme-chip-active", btn.dataset.theme === theme);
   });
+  syncOptimiserTheme();
 }
 
 function saveThemePrefs() {
