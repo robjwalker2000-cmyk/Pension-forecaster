@@ -2537,7 +2537,7 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, mod
   const lines = [
     { text: `${row.calendarYear}  ·  age ${row.age}`, bold: true },
   ];
-  if (!freeOnly) {
+  if (!isFreeOnly) {
     d.spending.forEach((seg) => {
       if (seg.v > 0.01) lines.push({ text: `${seg.label}: ${formatCurrency(seg.v)}`, dot: seg.color });
     });
@@ -2547,10 +2547,14 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, mod
   } else if (d.shortfall < -0.01) {
     lines.push({ text: `Shortfall: ${formatCurrency(Math.abs(d.shortfall))}`, dot: "#ef4444" });
   }
-  if (!freeOnly && d.tax > 0.01) {
+  if (isTaxBreakdown) {
+    if (d.basicTax > 0.01)  lines.push({ text: `Basic rate tax: ${formatCurrency(d.basicTax)}`,  dot: "#f97316" });
+    if (d.higherTax > 0.01) lines.push({ text: `Higher rate tax: ${formatCurrency(d.higherTax)}`, dot: "#ef4444" });
+  } else if (!isFreeOnly && d.tax > 0.01) {
     lines.push({ text: `Tax: ${formatCurrency(d.tax)}`, dot: "#ef4444" });
   }
-  const total = d.spending.reduce((s, seg) => s + seg.v, 0) + d.surplus + (freeOnly ? 0 : d.tax);
+  const total = d.spending.reduce((s, seg) => s + seg.v, 0) + d.surplus +
+    (isTaxBreakdown ? d.basicTax + d.higherTax : isFreeOnly ? 0 : d.tax);
   lines.push({ text: `Total: ${formatCurrency(total)}`, bold: true, sep: true });
   if (row.eventTitles?.length) row.eventTitles.forEach((t) => lines.push({ text: `★ ${t}`, color: "#fde047" }));
 
