@@ -3,7 +3,26 @@
     "allow": [
       "Bash(node --check /Users/rob/Documents/GitHub/Mini/Pension-forecaster/app.js)",
       "Bash(python3 -c ' *)",
-      "Bash(node --input-type=module)"
+      "Bash(node --input-type=module)",
+      "Bash(ls /Users/rob/Documents/Claude/HealthViewer/)",
+      "Bash(cp \"/Users/rob/Documents/Claude/HealthViewer/5C20DA6E-0BF8-4C76-A5C0-1E3F64DF866F_1_105_c.jpeg\" \"/Users/rob/Documents/GitHub/Mini/Pension-forecaster/background.jpeg\" && echo \"Copied\")",
+      "Bash(/usr/local/bin/node --version)",
+      "Bash(/opt/homebrew/bin/node --version)",
+      "Read(//usr/local/bin/**)",
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//Users/rob/.nvm/versions/**)",
+      "Bash(mkdir -p /Users/rob/Documents/GitHub/Mini/Pension-forecaster/.claude)",
+      "mcp__Claude_Preview__preview_start",
+      "mcp__Claude_in_Chrome__navigate",
+      "mcp__Claude_in_Chrome__browser_batch",
+      "mcp__Claude_in_Chrome__read_page",
+      "mcp__Claude_in_Chrome__tabs_create_mcp",
+      "Bash(python3 -m http.server 8765)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8765/index.html)",
+      "Bash(pkill -f \"http.server 8765\")",
+      "Bash(ls /Users/rob/Documents/Claude/SpendingAnalysis/)",
+      "Bash(git rm *)"
     ]
   }
 }
