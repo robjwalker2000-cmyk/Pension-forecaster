@@ -4400,6 +4400,30 @@ const THEME_PRESETS = {
     "--shadow": "0 2px 0px rgba(255,255,255,0.04), 0 8px 24px rgba(0,0,0,0.5), 0 24px 64px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.35)",
     "--radius": "20px",
   },
+  bright: {
+    "--bg": "#20140d",
+    "--panel": "rgba(54, 34, 19, 0.42)",
+    "--panel-strong": "rgba(62, 40, 22, 0.72)",
+    "--card": "rgba(80, 50, 28, 0.65)",
+    "--card-2": "rgba(60, 36, 18, 0.60)",
+    "--card-warn": "rgba(80, 30, 20, 0.70)",
+    "--card-warn-2": "rgba(62, 22, 14, 0.65)",
+    "--card-success": "rgba(30, 60, 40, 0.70)",
+    "--card-success-2": "rgba(20, 46, 30, 0.65)",
+    "--input-bg": "rgba(255, 220, 160, 0.08)",
+    "--line": "rgba(255, 216, 160, 0.14)",
+    "--line-strong": "rgba(255, 220, 168, 0.30)",
+    "--text": "#fff7e8",
+    "--muted": "#d8bb8d",
+    "--accent": "#f4b35e",
+    "--accent-2": "#55d6a5",
+    "--accent-glow": "rgba(244, 179, 94, 0.28)",
+    "--button-text": "#2a1200",
+    "--danger": "#ff7b7b",
+    "--success": "#55d6a5",
+    "--shadow": "0 2px 0px rgba(255,220,160,0.06), 0 8px 24px rgba(0,0,0,0.55), 0 24px 64px rgba(0,0,0,0.50), 0 0 0 1px rgba(0,0,0,0.40)",
+    "--radius": "20px",
+  },
   metallic: {
     "--bg": "#131416",
     "--panel": "rgba(58, 62, 70, 0.92)",
@@ -4484,6 +4508,87 @@ let customBgHue = 175;
 let customTileHue = 220;
 let customCanvasHue = 220;
 let customTextHue = 220;
+let customBackgroundUrl = null;
+
+function getPanelBaseRgb() {
+  if (activeTheme === "metallic") return [52, 62, 82];
+  if (activeTheme === "original") return [255, 252, 247];
+  if (activeTheme === "bright") return [54, 34, 19];
+  return [9, 18, 33];
+}
+
+function getCardBaseRgbs() {
+  if (activeTheme === "metallic") return {
+    card: [72, 76, 86], card2: [48, 51, 58],
+    warn: [70, 48, 44], warn2: [52, 34, 30],
+    success: [44, 62, 52], success2: [32, 48, 38],
+  };
+  if (activeTheme === "bright") return {
+    card: [80, 50, 28], card2: [60, 36, 18],
+    warn: [80, 30, 20], warn2: [62, 22, 14],
+    success: [30, 60, 40], success2: [20, 46, 30],
+  };
+  if (activeTheme === "original") return {
+    card: [255, 252, 247], card2: [255, 246, 232],
+    warn: [255, 240, 240], warn2: [255, 226, 226],
+    success: [240, 255, 248], success2: [220, 252, 236],
+  };
+  // dark + custom
+  return {
+    card: [12, 16, 30], card2: [8, 12, 22],
+    warn: [30, 14, 14], warn2: [20, 10, 10],
+    success: [10, 30, 20], success2: [8, 22, 16],
+  };
+}
+
+function applyPanelTransparency() {
+  const slider = document.getElementById("panel-transparency");
+  const valueEl = document.getElementById("panel-transparency-value");
+  if (!slider) return;
+  const clear = parseInt(slider.value);
+  const alpha = Math.max(0.02, Math.min(0.95, 1 - clear / 100));
+  const a = alpha.toFixed(2);
+  const b = Math.max(0.02, alpha - 0.05).toFixed(2);
+  const c = Math.max(0.02, alpha - 0.10).toFixed(2);
+  const [r, g, bl] = getPanelBaseRgb();
+  const cards = getCardBaseRgbs();
+
+  // Panel vars (used directly in CSS)
+  document.body.style.setProperty("--panel-a", a);
+  document.body.style.setProperty("--panel-b", b);
+  document.body.style.setProperty("--panel-c", c);
+  document.body.style.setProperty("--panel", `rgba(${r},${g},${bl},${a})`);
+  document.body.style.setProperty("--panel-strong", `rgba(${r},${g},${bl},${Math.min(0.97, alpha + 0.2).toFixed(2)})`);
+
+  // Card vars — updates summary cards, warning/success cards in all themes
+  const cv = (rgb, al) => `rgba(${rgb.join(",")},${al})`;
+  document.body.style.setProperty("--card",          cv(cards.card,     a));
+  document.body.style.setProperty("--card-2",        cv(cards.card2,    b));
+  document.body.style.setProperty("--card-warn",     cv(cards.warn,     a));
+  document.body.style.setProperty("--card-warn-2",   cv(cards.warn2,    b));
+  document.body.style.setProperty("--card-success",  cv(cards.success,  a));
+  document.body.style.setProperty("--card-success-2",cv(cards.success2, b));
+
+  // Table background var — used by metallic/bright CSS table rules
+  document.body.style.setProperty("--table-bg", `rgba(${r},${g},${bl},${c})`);
+
+  if (valueEl) valueEl.textContent = `${clear}%`;
+}
+
+function applyBackgroundMode() {
+  const modeEl = document.getElementById("bg-mode");
+  if (!modeEl) return;
+  const mode = modeEl.value;
+  const image = customBackgroundUrl ? `url("${customBackgroundUrl}")` : "url('./background.jpeg')";
+  if (mode === "plain") {
+    document.body.style.setProperty("--bg-image", "none");
+    document.body.style.setProperty("--bg-opacity", "0");
+  } else {
+    document.body.style.setProperty("--bg-image", image);
+    const opacity = mode === "soft" ? "0.18" : mode === "vivid" ? "0.55" : activeTheme === "bright" ? "0.44" : "0.34";
+    document.body.style.setProperty("--bg-opacity", opacity);
+  }
+}
 
 function applyTheme(theme, bgHue, tileHue, canvasHue, textHue) {
   const root = document.documentElement;
@@ -4497,24 +4602,27 @@ function applyTheme(theme, bgHue, tileHue, canvasHue, textHue) {
     : THEME_PRESETS[theme] || THEME_PRESETS.dark;
   Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v));
 
-  // Body background: use inline style for original + custom; clear for dark (let CSS rule win)
+  // Body background colour (photo is handled by body::before via CSS vars)
   if (theme === "original") {
-    document.body.style.backgroundImage = buildOriginalBackground();
     document.body.style.backgroundColor = "#f4efe6";
+  } else if (theme === "bright") {
+    document.body.style.backgroundColor = "#20140d";
   } else if (theme === "metallic") {
-    document.body.style.backgroundImage = [
-      "radial-gradient(ellipse 70% 45% at 20% 10%, rgba(200, 215, 240, 0.055) 0%, transparent 60%)",
-      "radial-gradient(ellipse 55% 40% at 80% 85%, rgba(180, 195, 220, 0.04) 0%, transparent 55%)",
-      "linear-gradient(180deg, #1a1c20 0%, #131416 45%, #0e1012 100%)",
-    ].join(", ");
-    document.body.style.backgroundColor = "#131416";
+    document.body.style.backgroundColor = "#0c1014";
   } else if (theme === "custom") {
-    document.body.style.backgroundImage = buildCustomBackground(bgHue, tileHue);
-    document.body.style.backgroundColor = `hsl(${canvasHue}, 30%, 16%)`;
+    document.body.style.backgroundColor = `hsl(${canvasHue}, 30%, 10%)`;
   } else {
-    document.body.style.backgroundImage = "";
-    document.body.style.backgroundColor = "";
+    document.body.style.backgroundColor = "#07111d";
   }
+  document.body.style.backgroundImage = "";
+
+  // Apply panel transparency for the current theme
+  applyPanelTransparency();
+  applyBackgroundMode();
+
+  // Theme panel stays fully opaque regardless of transparency slider
+  const [pr, pg, pb] = getPanelBaseRgb();
+  document.body.style.setProperty("--theme-panel-bg", `rgba(${pr},${pg},${pb},0.92)`);
 
   // data-theme drives font-family, h1 colour, table colours etc via CSS
   root.setAttribute("data-theme", theme);
@@ -4526,17 +4634,28 @@ function applyTheme(theme, bgHue, tileHue, canvasHue, textHue) {
 }
 
 function saveThemePrefs() {
-  localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ theme: activeTheme, bgHue: customBgHue, tileHue: customTileHue, canvasHue: customCanvasHue, textHue: customTextHue }));
+  const bgModeEl = document.getElementById("bg-mode");
+  const transparencyEl = document.getElementById("panel-transparency");
+  localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({
+    theme: activeTheme,
+    bgHue: customBgHue, tileHue: customTileHue, canvasHue: customCanvasHue, textHue: customTextHue,
+    bgMode: bgModeEl ? bgModeEl.value : "photo",
+    transparency: transparencyEl ? transparencyEl.value : "52",
+  }));
 }
 
 function loadThemePrefs() {
   try {
     const saved = JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) || "{}");
-    activeTheme = ["original", "dark", "metallic", "custom"].includes(saved.theme) ? saved.theme : "metallic";
+    activeTheme = ["original", "bright", "dark", "metallic", "custom"].includes(saved.theme) ? saved.theme : "metallic";
     customBgHue = Number.isFinite(saved.bgHue) ? saved.bgHue : 175;
     customTileHue = Number.isFinite(saved.tileHue) ? saved.tileHue : 220;
     customCanvasHue = Number.isFinite(saved.canvasHue) ? saved.canvasHue : 220;
     customTextHue = Number.isFinite(saved.textHue) ? saved.textHue : 220;
+    const bgModeEl = document.getElementById("bg-mode");
+    const transparencyEl = document.getElementById("panel-transparency");
+    if (bgModeEl && saved.bgMode) bgModeEl.value = saved.bgMode;
+    if (transparencyEl && saved.transparency) transparencyEl.value = saved.transparency;
   } catch {
     activeTheme = "metallic";
   }
@@ -4570,19 +4689,19 @@ canvasHueSlider.value = customCanvasHue;
 textHueSlider.value = customTextHue;
 syncSwatches();
 applyTheme(activeTheme, customBgHue, customTileHue, customCanvasHue, customTextHue);
-themeCustomSliders.hidden = activeTheme !== "custom";
+themeCustomSliders.style.display = activeTheme === "custom" ? "block" : "none";
 render();
 renderSpecialEventsPanel();
 
 // Toggle panel open/close
 themeSettingsBtn.addEventListener("click", (e) => {
   e.stopPropagation();
-  themePanel.hidden = !themePanel.hidden;
+  themePanel.classList.toggle("open");
 });
 
 document.addEventListener("click", (e) => {
-  if (!themePanel.hidden && !themePanel.contains(e.target) && e.target !== themeSettingsBtn) {
-    themePanel.hidden = true;
+  if (themePanel.classList.contains("open") && !themePanel.contains(e.target) && e.target !== themeSettingsBtn) {
+    themePanel.classList.remove("open");
   }
 });
 
@@ -4590,12 +4709,35 @@ document.addEventListener("click", (e) => {
 document.querySelectorAll(".theme-chip").forEach((btn) => {
   btn.addEventListener("click", () => {
     activeTheme = btn.dataset.theme;
-    themeCustomSliders.hidden = activeTheme !== "custom";
-    if (activeTheme !== "custom") themePanel.hidden = true;
+    themeCustomSliders.style.display = activeTheme === "custom" ? "block" : "none";
+    if (activeTheme !== "custom") themePanel.classList.remove("open");
     applyTheme(activeTheme, customBgHue, customTileHue, customCanvasHue, customTextHue);
     saveThemePrefs();
     render();
   });
+});
+
+// Background mode / file
+document.getElementById("bg-mode").addEventListener("change", () => {
+  applyBackgroundMode();
+  saveThemePrefs();
+});
+
+document.getElementById("bg-file").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (customBackgroundUrl) URL.revokeObjectURL(customBackgroundUrl);
+  customBackgroundUrl = URL.createObjectURL(file);
+  document.getElementById("bg-mode").value = "photo";
+  applyBackgroundMode();
+  saveThemePrefs();
+});
+
+// Panel transparency slider
+document.getElementById("panel-transparency").addEventListener("input", () => {
+  applyPanelTransparency();
+  saveThemePrefs();
+  render();
 });
 
 // Custom hue sliders

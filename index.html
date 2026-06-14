@@ -14,17 +14,43 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 3.9</button>
-              <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme">✦</button>
-              <div id="theme-panel" class="theme-panel" hidden>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 4.0</button>
+              <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme"></button>
+              <div id="theme-panel" class="theme-panel">
                 <p class="theme-panel-title">Theme</p>
                 <div class="theme-chips">
                   <button class="theme-chip" data-theme="original" type="button">Classic</button>
+                  <button class="theme-chip" data-theme="bright" type="button">Bright</button>
                   <button class="theme-chip" data-theme="dark" type="button">Dark</button>
                   <button class="theme-chip" data-theme="metallic" type="button">Metal</button>
                   <button class="theme-chip" data-theme="custom" type="button">Custom</button>
                 </div>
-                <div id="theme-custom-sliders" class="theme-custom-sliders" hidden>
+                <div class="theme-custom-section">
+                  <div class="theme-section-label">Background</div>
+                  <div class="theme-control-row">
+                    <label>Mode</label>
+                    <select id="bg-mode">
+                      <option value="photo">Photo</option>
+                      <option value="soft">Soft photo</option>
+                      <option value="vivid">Vivid photo</option>
+                      <option value="plain">Plain colour</option>
+                    </select>
+                  </div>
+                  <div class="theme-control-row">
+                    <label>Image</label>
+                    <input type="file" id="bg-file" accept="image/*" />
+                  </div>
+                </div>
+                <div class="theme-custom-section">
+                  <div class="theme-section-label">Panel glass</div>
+                  <div class="theme-control-row">
+                    <label>Transparency</label>
+                    <input type="range" id="panel-transparency" min="20" max="100" value="52" />
+                    <span class="theme-range-value" id="panel-transparency-value">52%</span>
+                  </div>
+                </div>
+                <div class="theme-custom-section" id="theme-custom-sliders" style="display:none">
+                  <div class="theme-section-label">Custom colours</div>
                   <label class="theme-slider-label">
                     <span>Background hue</span>
                     <div class="theme-slider-row">

@@ -12,7 +12,10 @@ Working now:
 - Projection table supports summary, detailed, granular, and custom views.
 - Charts show spending and income/drawdown composition.
 - Plan data can be imported/exported as JSON, exported to Excel-style tables/formula workbooks, exported to PDF, and shared by URL.
-- Theme switching works for classic, dark, metallic, and custom colour themes.
+- Five themes: Classic (warm parchment), Bright (dark amber/fire), Dark (deep navy), Metal (brushed steel), Custom (hue sliders).
+- Background photo layer (`background.jpeg`) displayed via `body::before`; mode and opacity controlled by the theme panel (Photo / Soft / Vivid / Plain).
+- Panel glass transparency slider (20–100 %) updates all panels, summary tiles, table, and sticky columns in real time via CSS custom properties `--panel-a/b/c` and `--table-bg`.
+- Clicking the version badge briefly shows the last-modified date then reverts to the version string.
 - Tax/drawdown logic includes UK income tax bands, personal allowance taper, personal savings allowance, TFLS, lump sum allowance, regular drawdown, maximise drawdown, and 25/75 pairing options.
 - Basic setup popup supports first-run/reset onboarding.
 
@@ -80,7 +83,7 @@ Key state groups:
 - Drawdown: regular drawdown, tax optimisation mode, TFLS by 75, maximise basic-rate drawdown, force 25/75 pairing, year-one TFLS settings.
 - Events: user-added exceptional income/expense items with amount, timing, taxable flag, and routing.
 - UI state: table view, selected custom fields, granular toggles, panel visibility, chart modes.
-- Theme state: active theme and custom hue sliders.
+- Theme state: active theme (`original` | `bright` | `dark` | `metallic` | `custom`), custom hue sliders (bgHue, tileHue, canvasHue, textHue), background mode (`photo` | `soft` | `vivid` | `plain`), panel transparency value (20–100). All persisted to `localStorage` under `pension-forecaster-theme-v1`.
 
 Projection output is created by `calculateProjection(source)` and returns derived rows with annual fields such as age, income, bills, holidays, tax, TFLS, taxable drawdown, savings used/left, pot balances, crystallisation, and free cash.
 
@@ -108,13 +111,28 @@ Use `STYLE_GUIDE.md` as the source of truth for visual style.
 Current UI rules:
 - Single-screen app, not a marketing landing page.
 - Left control panel with grouped panels; right/main area shows summary, charts, and projection table.
-- Preserve existing theme system and CSS custom properties.
+- Preserve existing theme system and CSS custom properties; see `STYLE_GUIDE.md` for tokens and patterns.
 - Keep controls compact and scannable.
 - Use existing button, dropdown, toggle, modal, table, and panel patterns.
 - Avoid adding new visual systems unless necessary.
 - For input changes, keep labels short and aligned with nearby related fields.
 - Maintain responsive behaviour in `styles.css`; check narrow layouts when moving controls.
 - Avoid large explanatory text in the app UI unless the user explicitly asks for it.
+
+Theme panel behaviour:
+- Opened by the 36 px colour-sphere button (top-right of header); uses `.open` class toggle, not `hidden` attribute.
+- Contains: Theme chips (Classic / Bright / Dark / Metal / Custom), Background section (Mode select + Image file input), Panel Glass section (Transparency slider 20–100 %), Custom Colours section (visible only in Custom theme).
+- `applyPanelTransparency()` sets `--panel-a/b/c`, `--panel`, `--panel-strong`, all `--card-*` vars, and `--table-bg` on `document.body` so every surface responds immediately.
+- `applyBackgroundMode()` controls `--bg-image` and `--bg-opacity` on `body::before`. Classic (`original`) theme forces `body::before { opacity: 0 }` via CSS so it always uses the parchment gradient; other themes respect the Mode selector.
+- Version badge click: shows last-modified date for ~2.5 s then reverts to the version string. Behaviour is in `showVersionChangeDate()` in `app.js`.
+
+Adding a new theme:
+1. Add a preset object to `THEME_PRESETS` in `app.js`.
+2. Add the theme name to the valid-themes list in `loadThemePrefs()`.
+3. Add a chip to the `.theme-chips` div in `index.html`.
+4. Add `html[data-theme="name"] body::after` (gradient overlay), `h1`, panel shimmer, and table/sticky-column overrides in `styles.css`.
+5. Add a case to `getPanelBaseRgb()` and `getCardBaseRgbs()` in `app.js` so the transparency slider uses the correct base colours.
+6. Add a `backgroundColor` case in `applyTheme()` in `app.js`.
 
 ## 9. Known issues
 
@@ -161,7 +179,7 @@ No build step.
 
 Deploy:
 
-Deploy `index.html`, `styles.css`, `app.js`, `README.md`, and any documentation files to a static host such as GitHub Pages.
+Deploy `index.html`, `styles.css`, `app.js`, `background.jpeg`, `README.md`, and any documentation files to a static host such as GitHub Pages. The background photo must be in the same directory as `index.html`.
 
 ## 12. AI working instructions
 

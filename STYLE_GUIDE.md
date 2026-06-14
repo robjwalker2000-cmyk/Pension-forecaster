@@ -1,5 +1,5 @@
 # Rob's Mini-App Style Guide
-# Version 1.0 — extracted from Pension Forecaster v3.4
+# Version 2.0 — updated from Pension Forecaster v4.0
 #
 # Purpose: apply this design system to new vanilla-JS SPAs so they share
 # the same look, themes, colour wheel, and interaction patterns.
@@ -24,12 +24,18 @@ Muted notes: 0.84rem
 
 ```css
 :root {
-  --bg:            #1a2236;
+  --bg:            #07111d;
   --bg-2:          #1e2840;
-  --panel:         rgba(10, 14, 26, 0.88);
-  --panel-strong:  rgba(8, 12, 22, 0.97);
-  --card:          rgba(12, 16, 30, 0.97);
-  --card-2:        rgba(8, 12, 22, 0.95);
+  --bg-image:      url('./background.jpeg'); /* photo shown via body::before */
+  --bg-opacity:    0.34;                    /* photo layer opacity; 0 = hidden */
+  --panel:         rgba(9, 18, 33, 0.48);
+  --panel-strong:  rgba(8, 12, 22, 0.85);
+  --panel-a:       0.48;  /* panel alpha — driven by transparency slider */
+  --panel-b:       0.38;  /* card-2 / slightly more transparent variant */
+  --panel-c:       0.28;  /* table-header / most transparent variant */
+  --table-bg:      rgba(9, 18, 33, 0.28); /* set by applyPanelTransparency() */
+  --card:          rgba(12, 16, 30, 0.48);
+  --card-2:        rgba(8, 12, 22, 0.38);
   --card-warn:     rgba(30, 14, 14, 0.96);
   --card-warn-2:   rgba(20, 10, 10, 0.9);
   --card-success:  rgba(10, 30, 20, 0.96);
@@ -64,6 +70,7 @@ Muted notes: 0.84rem
 | --bg            | Page background colour |
 | --panel         | Frosted-glass panel background |
 | --panel-strong  | Opaque panel / dropdown background |
+| --theme-panel-bg | Theme panel fixed background (ignores transparency slider — set by applyTheme only) |
 | --card          | Summary card gradient stop A |
 | --card-2        | Summary card gradient stop B |
 | --card-warn     | Warning card gradient (red tint) |
@@ -85,17 +92,42 @@ Muted notes: 0.84rem
 
 ## 3. THEME SYSTEM (JS — copy verbatim, update STORAGE_KEY)
 
-### 3a. Four themes
+### 3a. Five themes
 
-- **dark**      — default; deep navy, teal accent
-- **original**  — warm parchment, serif font, teal/amber accent
-- **metallic**  — charcoal + brushed steel, steel-blue accent
+- **dark**      — default; deep navy, teal accent, background photo at 34 % opacity
+- **bright**    — dark amber/fire; amber accent + teal secondary, photo at 44 % opacity; mirrors HealthViewer Original
+- **original**  — warm parchment, serif font, teal/amber accent; photo hidden, CSS parchment gradient
+- **metallic**  — charcoal + brushed steel, steel-blue accent, photo at 34 % opacity
 - **custom**    — four hue sliders (bg accent, tile, canvas, text)
 
 ### 3b. THEME_PRESETS object
 
 ```js
 const THEME_PRESETS = {
+  bright: {
+    "--bg":           "#20140d",
+    "--panel":        "rgba(54, 34, 19, 0.42)",
+    "--panel-strong": "rgba(62, 40, 22, 0.72)",
+    "--card":         "rgba(80, 50, 28, 0.65)",
+    "--card-2":       "rgba(60, 36, 18, 0.60)",
+    "--card-warn":    "rgba(80, 30, 20, 0.70)",
+    "--card-warn-2":  "rgba(62, 22, 14, 0.65)",
+    "--card-success": "rgba(30, 60, 40, 0.70)",
+    "--card-success-2":"rgba(20, 46, 30, 0.65)",
+    "--input-bg":     "rgba(255, 220, 160, 0.08)",
+    "--line":         "rgba(255, 216, 160, 0.14)",
+    "--line-strong":  "rgba(255, 220, 168, 0.30)",
+    "--text":         "#fff7e8",
+    "--muted":        "#d8bb8d",
+    "--accent":       "#f4b35e",
+    "--accent-2":     "#55d6a5",
+    "--accent-glow":  "rgba(244, 179, 94, 0.28)",
+    "--button-text":  "#2a1200",
+    "--danger":       "#ff7b7b",
+    "--success":      "#55d6a5",
+    "--shadow":       "0 2px 0px rgba(255,220,160,0.06), 0 8px 24px rgba(0,0,0,0.55), 0 24px 64px rgba(0,0,0,0.50), 0 0 0 1px rgba(0,0,0,0.40)",
+    "--radius":       "20px",
+  },
   original: {
     "--bg":           "#f4efe6",
     "--panel":        "rgba(255, 252, 247, 0.92)",
@@ -272,28 +304,130 @@ function applyTheme(theme, bgHue, tileHue, canvasHue, textHue) {
 
 ### 3e. Persistence
 
+Also persist `bgMode` and `transparency` alongside hue sliders:
+
 ```js
 const THEME_STORAGE_KEY = "MY-APP-theme-v1"; // change MY-APP per project
 
 function saveThemePrefs() {
+  const bgModeEl      = document.getElementById("bg-mode");
+  const transparencyEl = document.getElementById("panel-transparency");
   localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({
     theme: activeTheme,
     bgHue: customBgHue, tileHue: customTileHue,
     canvasHue: customCanvasHue, textHue: customTextHue,
+    bgMode:       bgModeEl       ? bgModeEl.value       : "photo",
+    transparency: transparencyEl ? transparencyEl.value  : "52",
   }));
 }
 
 function loadThemePrefs() {
   try {
     const saved = JSON.parse(localStorage.getItem(THEME_STORAGE_KEY) || "{}");
-    activeTheme    = ["original","dark","metallic","custom"].includes(saved.theme) ? saved.theme : "dark";
+    activeTheme    = ["original","bright","dark","metallic","custom"].includes(saved.theme) ? saved.theme : "dark";
     customBgHue    = Number.isFinite(saved.bgHue)    ? saved.bgHue    : 175;
     customTileHue  = Number.isFinite(saved.tileHue)  ? saved.tileHue  : 220;
     customCanvasHue= Number.isFinite(saved.canvasHue)? saved.canvasHue: 220;
     customTextHue  = Number.isFinite(saved.textHue)  ? saved.textHue  : 220;
+    const bgModeEl      = document.getElementById("bg-mode");
+    const transparencyEl = document.getElementById("panel-transparency");
+    if (bgModeEl && saved.bgMode)           bgModeEl.value       = saved.bgMode;
+    if (transparencyEl && saved.transparency) transparencyEl.value = saved.transparency;
   } catch { activeTheme = "dark"; }
 }
 ```
+
+### 3g. Panel glass transparency system
+
+All panel/card surfaces respond to a transparency slider (20–100 %). The slider value is the
+**clearness** percentage: 52 % clear → alpha 0.48.
+
+```js
+function getPanelBaseRgb() {
+  // Returns [r, g, b] of the darkest tint for this theme's panels
+  if (activeTheme === "metallic") return [52, 62, 82];
+  if (activeTheme === "original") return [255, 252, 247]; // light cream
+  if (activeTheme === "bright")   return [54, 34, 19];
+  return [9, 18, 33]; // dark + custom
+}
+
+function getCardBaseRgbs() {
+  // Returns base RGB for each card variant so transparency applies consistently
+  if (activeTheme === "metallic") return {
+    card: [72, 76, 86], card2: [48, 51, 58],
+    warn: [70, 48, 44], warn2: [52, 34, 30],
+    success: [44, 62, 52], success2: [32, 48, 38],
+  };
+  if (activeTheme === "bright") return {
+    card: [80, 50, 28], card2: [60, 36, 18],
+    warn: [80, 30, 20], warn2: [62, 22, 14],
+    success: [30, 60, 40], success2: [20, 46, 30],
+  };
+  if (activeTheme === "original") return {
+    card: [255, 252, 247], card2: [255, 246, 232],
+    warn: [255, 240, 240], warn2: [255, 226, 226],
+    success: [240, 255, 248], success2: [220, 252, 236],
+  };
+  return { // dark + custom
+    card: [12, 16, 30], card2: [8, 12, 22],
+    warn: [30, 14, 14], warn2: [20, 10, 10],
+    success: [10, 30, 20], success2: [8, 22, 16],
+  };
+}
+
+function applyPanelTransparency() {
+  const clear = parseInt(document.getElementById("panel-transparency").value);
+  const alpha = Math.max(0.02, Math.min(0.95, 1 - clear / 100));
+  const a = alpha.toFixed(2);
+  const b = Math.max(0.02, alpha - 0.05).toFixed(2);
+  const c = Math.max(0.02, alpha - 0.10).toFixed(2);
+  const [r, g, bl] = getPanelBaseRgb();
+  const cards = getCardBaseRgbs();
+  const cv = (rgb, al) => `rgba(${rgb.join(",")},${al})`;
+
+  document.body.style.setProperty("--panel-a", a);
+  document.body.style.setProperty("--panel-b", b);
+  document.body.style.setProperty("--panel-c", c);
+  document.body.style.setProperty("--panel",        `rgba(${r},${g},${bl},${a})`);
+  document.body.style.setProperty("--panel-strong",  `rgba(${r},${g},${bl},${Math.min(0.97, alpha + 0.2).toFixed(2)})`);
+  document.body.style.setProperty("--card",           cv(cards.card,     a));
+  document.body.style.setProperty("--card-2",         cv(cards.card2,    b));
+  document.body.style.setProperty("--card-warn",      cv(cards.warn,     a));
+  document.body.style.setProperty("--card-warn-2",    cv(cards.warn2,    b));
+  document.body.style.setProperty("--card-success",   cv(cards.success,  a));
+  document.body.style.setProperty("--card-success-2", cv(cards.success2, b));
+  document.body.style.setProperty("--table-bg",       `rgba(${r},${g},${bl},${c})`);
+}
+```
+
+CSS rules that have hardcoded `rgba` backgrounds (e.g. metallic `.panel`, table headers, sticky columns)
+must use `var(--panel-a)` / `var(--panel-b)` / `var(--panel-c)` instead of literal alpha values so
+the slider takes effect. The base `table` rule should use `var(--table-bg, fallback)`.
+
+**Exception — theme panel dropdown:** `.theme-panel` uses `--theme-panel-bg` (set by `applyTheme()`,
+never by `applyPanelTransparency()`). It must stay legible at all slider positions.
+
+### 3h. Background photo system
+
+The background photo sits on `body::before` (position: fixed, full cover):
+
+```css
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: var(--bg-image);
+  background-size: cover; background-position: center;
+  opacity: var(--bg-opacity);
+}
+```
+
+`applyBackgroundMode()` updates `--bg-image` and `--bg-opacity` on `body`:
+- **Photo** — default JPEG at ~34 % (44 % for Bright)
+- **Soft photo** — 18 %
+- **Vivid photo** — 55 %
+- **Plain colour** — image: none, opacity: 0
+
+Classic (`original`) theme forces `body::before { opacity: 0 }` via a CSS data-theme override
+and uses `body::after` for its warm parchment gradient instead.
 
 ### 3f. Double-render pattern (IMPORTANT)
 
@@ -475,6 +609,10 @@ input:focus, select:focus {
 ```
 
 ### 5f. Version badge
+
+Clicking the badge shows the last-modified date of the current plan for ~2.5 s, then reverts
+to the version string. Store the original text in `data-version` on first click.
+
 ```css
 .version-badge {
   padding: 8px 16px; border-radius: 999px;
@@ -490,6 +628,22 @@ input:focus, select:focus {
   background: rgba(0,212,184,0.18);
   box-shadow: 0 0 18px rgba(0,212,184,0.25);
 }
+```
+
+Click handler pattern:
+```js
+let versionBadgeTimeout = null;
+function showVersionChangeDate() {
+  const versionText = versionBadge.dataset.version || versionBadge.textContent;
+  if (!versionBadge.dataset.version) versionBadge.dataset.version = versionText;
+  // format the last-saved timestamp from state here
+  versionBadge.textContent = `Changed ${formatted}`;
+  clearTimeout(versionBadgeTimeout);
+  versionBadgeTimeout = setTimeout(() => {
+    versionBadge.textContent = versionBadge.dataset.version;
+  }, 2500);
+}
+versionBadge.addEventListener("click", showVersionChangeDate);
 ```
 
 ### 5g. h1 gradient text (dark theme)
@@ -540,56 +694,108 @@ h1 {
 
 ## 6. THEME SWITCHER UI
 
-### 6a. Colour-wheel button (the ✦ / sphere icon that opens theme panel)
+### 6a. Colour-sphere button (opens theme panel)
+
+24 px sphere with three-layer gloss (top-left highlight, bottom-right shadow, mid gloss) + full-spectrum conic rainbow. Spins 180° on hover with a slow 0.6 s ease — no scale, no glyph.
+
+**Placement:** sits immediately after the version badge in the header, right-aligned. Keep it at 24 px — it sits neatly beside the badge without dominating the header.
+
+HTML order (within `version-badge-group`):
+```html
+<button id="version-badge" class="version-badge" …>Version 4.0</button>
+<button id="theme-settings-button" class="theme-settings-button" …></button>
+```
+
 ```css
 .theme-settings-button {
-  width: 22px; height: 22px;
+  width: 24px; height: 24px;
   display: inline-grid; place-items: center;
   border-radius: 999px; border: none;
-  /* 3-D sphere: gloss highlight + shadow vignette + bloom + conic rainbow */
   background:
     radial-gradient(circle at 35% 32%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 55%),
     radial-gradient(circle at 68% 72%, rgba(0,0,0,0.28)       0%, rgba(0,0,0,0)       55%),
     radial-gradient(circle at 50% 50%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 48%),
-    conic-gradient(
-      hsl(0,100%,60%), hsl(30,100%,60%), hsl(60,100%,60%),
-      hsl(90,100%,60%), hsl(120,100%,60%), hsl(150,100%,60%),
-      hsl(180,100%,60%), hsl(210,100%,60%), hsl(240,100%,60%),
-      hsl(270,100%,60%), hsl(300,100%,60%), hsl(330,100%,60%),
-      hsl(360,100%,60%)
-    );
+    conic-gradient(hsl(0,100%,60%), hsl(60,100%,60%), hsl(120,100%,60%),
+                   hsl(180,100%,60%), hsl(240,100%,60%), hsl(300,100%,60%), hsl(360,100%,60%));
   box-shadow: 0 1px 4px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,255,255,0.4);
-  color: transparent; /* sphere is the icon; hide any text glyph */
   cursor: pointer;
-  transition: box-shadow 0.2s, transform 0.6s;
+  transition: transform 0.6s, box-shadow 0.2s;
   flex-shrink: 0;
 }
-.theme-settings-button:hover {
-  box-shadow: 0 2px 10px rgba(0,0,0,0.4), 0 0 16px rgba(255,255,255,0.2),
-              inset 0 1px 1px rgba(255,255,255,0.4);
-  transform: rotate(180deg);
-}
+.theme-settings-button:hover { transform: rotate(180deg); }
 ```
 
 ### 6b. Theme panel (dropdown)
+
+Use `.open` class to show/hide (not the `hidden` attribute). Width 310 px with scroll for tall content.
+
 ```css
 .theme-panel {
-  position: absolute; top: calc(100% + 10px); left: 0; z-index: 30;
-  width: 252px;
-  background: var(--panel-strong);
+  display: none;
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+  width: 310px; max-height: 80vh; overflow-y: auto;
+  background: var(--theme-panel-bg, rgba(8,12,22,0.92)); /* fixed — ignores transparency slider */
   border: 1px solid var(--line-strong);
-  border-radius: 18px; padding: 16px;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.25),
-              0 0 30px rgba(0,212,184,0.06);
+  border-radius: 14px; padding: 16px;
+  backdrop-filter: blur(20px);
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 30px rgba(0,212,184,0.06);
+}
+.theme-panel.open {
+  display: block;
   animation: panel-drop 0.18s cubic-bezier(0.34,1.3,0.64,1);
 }
 ```
 
-### 6c. Theme chips (Classic / Dark / Metal / Custom)
+`--theme-panel-bg` is set once per theme in `applyTheme()` at a fixed alpha 0.92, and is **never** written by `applyPanelTransparency()` — so the panel stays legible regardless of the slider.
+
+```js
+// In applyTheme(), after applyPanelTransparency():
+const [pr, pg, pb] = getPanelBaseRgb();
+document.body.style.setProperty("--theme-panel-bg", `rgba(${pr},${pg},${pb},0.92)`);
+```
+
+Toggle logic (JS):
+```js
+sphereBtn.addEventListener("click", e => {
+  e.stopPropagation();
+  themePanel.classList.toggle("open");
+});
+document.addEventListener("click", () => themePanel.classList.remove("open"));
+themePanel.addEventListener("click", e => e.stopPropagation());
+```
+
+Panel sections (in order): **Theme** chips → **Background** (Mode select + Image file input) →
+**Panel Glass** (Transparency range 20–100 %) → **Custom Colours** (visible only when Custom active).
+
 ```css
-.theme-chips { display: flex; gap: 6px; }
+.theme-custom-section { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.theme-section-label  { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.theme-control-row    { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.theme-control-row label { font-size: 0.74rem; color: var(--muted); flex: 1; }
+.theme-control-row select,
+.theme-control-row input[type=range] { flex: 2; }
+.theme-range-value { width: 36px; text-align: right; font-size: 0.72rem; font-weight: 700; color: var(--accent); }
+```
+
+### 6c. Theme chips
+
+**Canonical order (use this order across all apps in this family):**
+Classic → Bright → Dark → Metal → Custom
+
+```html
+<button class="theme-chip" data-theme="original">Classic</button>
+<button class="theme-chip" data-theme="bright">Bright</button>
+<button class="theme-chip" data-theme="dark">Dark</button>
+<button class="theme-chip" data-theme="metallic">Metal</button>
+<button class="theme-chip" data-theme="custom">Custom</button>
+```
+
+Use `flex-wrap: wrap` with `flex: 1 1 calc(33% - 4px)` on each chip so five chips wrap to two rows without overflow.
+
+```css
+.theme-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .theme-chip {
-  flex: 1; padding: 8px 4px; border-radius: 10px;
+  flex: 1 1 calc(33% - 4px); padding: 8px 4px; border-radius: 10px;
   border: 1px solid var(--line); background: transparent;
   color: var(--muted); font-size: 0.82rem; font-weight: 500; cursor: pointer;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
