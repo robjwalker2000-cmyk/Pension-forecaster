@@ -22,7 +22,13 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8765/index.html)",
       "Bash(pkill -f \"http.server 8765\")",
       "Bash(ls /Users/rob/Documents/Claude/SpendingAnalysis/)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(grep -n \"^## 13\\\\|^# 13\\\\|^13\\\\.\\\\|Section 13\\\\|section 13\" /Users/rob/Documents/GitHub/Mini/HealthViewer/STYLE_GUIDE.md)",
+      "Bash(wc -l /Users/rob/Documents/GitHub/Mini/HealthViewer/STYLE_GUIDE.md)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8765/)",
+      "mcp__Claude_in_Chrome__find",
+      "mcp__Claude_in_Chrome__javascript_tool",
+      "Bash(grep -n \"bg-image\\\\|bg-opacity\\\\|background\\\\|::before\\\\|photo\\\\|blur\\\\|opacity\\\\|background-size\\\\|background-position\\\\|mix-blend\\\\|overlay\" /Users/rob/Documents/GitHub/Mini/SpendingAnalysis/styles.css 2>/dev/null | head -60; ls /Users/rob/Documents/GitHub/Mini/SpendingAnalysis/ 2>/dev/null | head -20)"
     ]
   }
 }
