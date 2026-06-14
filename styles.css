@@ -106,13 +106,14 @@ h2,
 
 h1 {
   margin: 0;
-  font-size: clamp(2.4rem, 5vw, 4.2rem);
-  line-height: 0.94;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  line-height: 1.05;
+  font-weight: 800;
   background: linear-gradient(135deg, #e8edf8 0%, var(--accent) 60%, #7c3aed 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
 .title-row {
