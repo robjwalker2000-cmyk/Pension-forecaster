@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pension Forecaster</title>
-    <link rel="stylesheet" href="./styles.css?v=20260606n" />
+    <link rel="stylesheet" href="./styles.css?v=20260614-opaque-controls" />
   </head>
   <body>
     <div class="page-shell">
@@ -13,7 +13,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 4.1</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 4.2</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme"></button>
               <div id="theme-panel" class="theme-panel">
                 <p class="theme-panel-title">Theme</p>
@@ -81,6 +81,10 @@
                 </div>
               </div>
             </div>
+            <nav class="app-view-nav" aria-label="Application view">
+              <button class="app-view-button app-view-button-active" type="button" data-app-view="forecaster">Forecaster</button>
+              <button class="app-view-button" type="button" data-app-view="optimiser">Optimiser</button>
+            </nav>
           </div>
         </div>
         <div class="hero-actions">
@@ -121,8 +125,11 @@
         </div>
       </header>
 
-      <main class="layout" id="layout">
-        <aside class="control-panel" id="control-panel">
+      <div class="views-outer">
+        <div class="views-track" id="app-views-track">
+          <section class="app-view" id="forecaster-view" aria-label="Pension forecaster">
+            <main class="layout" id="layout">
+              <aside class="control-panel" id="control-panel">
           <section class="panel">
             <h2>Personal Details</h2>
             <div class="field-grid">
@@ -368,7 +375,18 @@
             <p id="special-events-empty" class="events-empty-message">No special events. Use Add event to model one-off income or expenses.</p>
           </section>
         </section>
-      </main>
+            </main>
+          </section>
+          <section class="app-view optimiser-view" id="optimiser-view" aria-label="Retirement optimiser">
+            <iframe
+              id="optimiser-frame"
+              class="optimiser-frame"
+              src="./optimizer-embedded.html?v=20260614-optimiser-tile-composite"
+              title="Retirement optimiser"
+            ></iframe>
+          </section>
+        </div>
+      </div>
     </div>
 
     <template id="summary-card-template">
@@ -456,6 +474,6 @@
       <p class="income-vslider-value" id="income-vslider-value">£0</p>
     </div>
 
-    <script src="./app.js?v=20260606n"></script>
+    <script src="./app.js?v=20260614-opaque-controls"></script>
   </body>
 </html>

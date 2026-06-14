@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Retirement Optimiser</title>
+    <link rel="stylesheet" href="./optimizer-embedded.css?v=20260614-optimiser-tile-composite" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="toolbar" aria-label="Retirement optimizer summary">
+        <div>
+          <div class="eyebrow">
+            <span>Retirement_Optimizer</span>
+            <button class="version-tag" id="versionTag" type="button" title="Show last changed date">0.6</button>
+            <span class="plan-status-badge" id="planStatusBadge">No Plan Loaded</span>
+            <div class="toolbar-actions optimizer-standalone-only" hidden>
+              <button class="text-button" id="exportSettingsButton" type="button">Export</button>
+              <button class="text-button" id="importSettingsButton" type="button">Import</button>
+              <input id="importSettingsFile" type="file" accept="application/json,.json,text/csv,.csv" hidden />
+              <button class="text-button toolbar-panel-toggle" id="panelToggleButton" type="button" title="Show/hide settings panel" aria-expanded="false" aria-controls="controlsPanel">Settings ›</button>
+            </div>
+            <span class="theme-settings-wrapper optimizer-standalone-only" hidden>
+              <button class="theme-settings-button" id="themeSettingsButton" type="button" title="Theme settings" aria-label="Theme settings"></button>
+              <div class="theme-panel" id="themePanel" hidden>
+                <p class="theme-panel-heading">Theme</p>
+                <div class="theme-chips">
+                  <button class="theme-chip" data-theme="original" type="button">Classic</button>
+                  <button class="theme-chip" data-theme="dark" type="button">Dark</button>
+                  <button class="theme-chip" data-theme="metallic" type="button">Metal</button>
+                  <button class="theme-chip" data-theme="custom" type="button">Custom</button>
+                </div>
+                <div class="theme-custom-sliders" id="themeCustomSliders">
+                  <div class="theme-slider-row">
+                    <span class="theme-slider-label">Accent</span>
+                    <input class="theme-slider" id="bgHueSlider" type="range" min="0" max="360" step="1" value="175" />
+                    <span class="theme-swatch" id="bgHueSwatch"></span>
+                  </div>
+                  <div class="theme-slider-row">
+                    <span class="theme-slider-label">Tile</span>
+                    <input class="theme-slider" id="tileHueSlider" type="range" min="0" max="360" step="1" value="220" />
+                    <span class="theme-swatch" id="tileHueSwatch"></span>
+                  </div>
+                  <div class="theme-slider-row">
+                    <span class="theme-slider-label">Canvas</span>
+                    <input class="theme-slider canvas-hue-slider" id="canvasHueSlider" type="range" min="0" max="360" step="1" value="220" />
+                    <span class="theme-swatch" id="canvasHueSwatch"></span>
+                  </div>
+                  <div class="theme-slider-row">
+                    <span class="theme-slider-label">Text</span>
+                    <input class="theme-slider text-hue-slider" id="textHueSlider" type="range" min="0" max="360" step="1" value="220" />
+                    <span class="theme-swatch" id="textHueSwatch"></span>
+                  </div>
+                </div>
+              </div>
+            </span>
+          </div>
+          <h1>Retirement optimiser</h1>
+        </div>
+        <div class="status-pill" id="readinessPill">Calculating</div>
+      </section>
+
+      <section class="workspace">
+        <aside class="controls-panel" id="controlsPanel" aria-label="Retirement assumptions" hidden>
+          <form id="optimizerForm">
+            <div class="spending-group planning-controls" aria-label="Tax year plan controls">
+              <div class="group-heading">
+                <span>Tax-year plan</span>
+                <strong id="annualSpendingTotal">£0/yr</strong>
+              </div>
+              <div class="planning-slider-grid">
+                <div class="range-row">
+                  <label for="targetEquivalentIncome">Target equivalent income</label>
+                  <span id="targetEquivalentIncomeValue">£80,000</span>
+                  <input id="targetEquivalentIncomeExact" class="exact-amount-input" type="number" min="20000" max="80000" step="1" value="80000" aria-label="Exact target equivalent income" />
+                  <input id="targetEquivalentIncome" type="range" min="20000" max="80000" step="1" value="80000" />
+                </div>
+                <div class="range-row">
+                  <label for="taxFreeLumpSumsThisYear">TFLs this year</label>
+                  <span id="taxFreeLumpSumsThisYearValue">£0</span>
+                  <input id="taxFreeLumpSumsThisYear" type="range" min="0" max="100000" step="1" value="0" />
+                  <small id="taxFreeLumpSumsThisYearNote">Available TFC: £0</small>
+                </div>
+              </div>
+              <div class="funding-source-grid">
+                <label>
+                  Partner work
+                  <input id="partnerWorkIncome" type="number" min="0" step="100" value="0" />
+                </label>
+                <label>
+                  Partner state pension
+                  <input id="partnerStatePension" type="number" min="0" step="100" value="0" />
+                </label>
+                <label>
+                  Partner work pension
+                  <input id="partnerWorkPension" type="number" min="0" step="100" value="0" />
+                </label>
+                <label>
+                  Partner savings
+                  <input id="partnerSavings" type="number" min="0" step="100" value="0" />
+                </label>
+                <label>
+                  Sourced from ISA
+                  <input id="isaSource" type="number" min="0" step="100" value="0" />
+                </label>
+                <label>
+                  Sourced from savings
+                  <input id="savingsSource" type="number" min="0" step="100" value="0" />
+                </label>
+                <label>
+                  Sourced from premium bonds
+                  <input id="premiumBondsSource" type="number" min="0" step="100" value="0" />
+                </label>
+              </div>
+              <div class="spending-group planned-spending-controls" aria-label="Planned spending categories">
+                <div class="group-heading">
+                  <span>Spending breakdown</span>
+                </div>
+                <div class="spending-row">
+                  <label for="billsAmount">Bills</label>
+                  <input id="billsAmount" type="number" min="0" step="100" value="5000" />
+                  <div class="frequency-toggle" aria-label="Bills frequency">
+                    <label>
+                      <input type="radio" name="billsFrequency" value="monthly" checked />
+                      <span>Mo</span>
+                    </label>
+                    <label>
+                      <input type="radio" name="billsFrequency" value="annual" />
+                      <span>Yr</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="spending-row">
+                  <label for="holidaysAmount">Holidays</label>
+                  <input id="holidaysAmount" type="number" min="0" step="100" value="15000" />
+                  <div class="frequency-toggle" aria-label="Holidays frequency">
+                    <label>
+                      <input type="radio" name="holidaysFrequency" value="monthly" />
+                      <span>Mo</span>
+                    </label>
+                    <label>
+                      <input type="radio" name="holidaysFrequency" value="annual" checked />
+                      <span>Yr</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="spending-row">
+                  <label for="carAmount">Car</label>
+                  <input id="carAmount" type="number" min="0" step="100" value="5000" />
+                  <div class="frequency-toggle" aria-label="Car frequency">
+                    <label>
+                      <input type="radio" name="carFrequency" value="monthly" />
+                      <span>Mo</span>
+                    </label>
+                    <label>
+                      <input type="radio" name="carFrequency" value="annual" checked />
+                      <span>Yr</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="panel-heading assumptions-heading">
+              <h2>Assumptions</h2>
+              <div class="heading-actions">
+                <button class="text-button" id="assumptionsToggle" type="button" aria-expanded="true" aria-controls="assumptionsContent">
+                  Hide
+                </button>
+                <button class="icon-button" id="resetButton" type="button" title="Reset assumptions" aria-label="Reset assumptions">
+                  ↺
+                </button>
+              </div>
+            </div>
+
+            <div id="assumptionsContent" class="assumptions-content">
+              <label>
+                Year of birth
+                <input id="birthYear" type="number" min="1900" max="2050" value="1964" />
+              </label>
+              <label>
+                Tax year starting April
+                <input id="currentYear" type="number" min="2000" max="2100" value="2026" />
+              </label>
+              <label>
+                Planning age
+                <input id="planningAge" type="number" min="60" max="110" value="95" />
+              </label>
+              <div class="spending-group" aria-label="Tax year settings">
+                <div class="group-heading">
+                  <span>Tax year settings</span>
+                  <strong id="lsaRemaining">£0 LSA left</strong>
+                </div>
+                <label>
+                  Lump Sum Allowance
+                  <input id="lumpSumAllowance" type="number" min="0" step="1000" value="268275" />
+                </label>
+                <label>
+                  TFLs taken to date
+                  <input id="taxFreeLumpSumsTaken" type="number" min="0" step="1000" value="0" />
+                </label>
+                <label>
+                  Crystallised pension
+                  <input id="crystallisedPension" type="number" min="0" step="1000" value="200000" />
+                </label>
+                <label>
+                  Uncrystallised pension
+                  <input id="uncrystallisedPension" type="number" min="0" step="1000" value="180000" />
+                </label>
+                <label>
+                  Tax allowance
+                  <input id="taxAllowance" type="number" min="0" step="100" value="12570" />
+                </label>
+                <label>
+                  Higher rate threshold
+                  <input id="higherRateThreshold" type="number" min="0" step="100" value="50270" />
+                </label>
+                <label>
+                  Personal savings allowance
+                  <input id="personalSavingsAllowance" type="number" min="0" step="100" value="1000" />
+                </label>
+                <label>
+                  Basic tax rate
+                  <input id="basicTaxRate" type="number" min="0" max="100" step="1" value="20" />
+                </label>
+                <label>
+                  Higher tax rate
+                  <input id="higherTaxRate" type="number" min="0" max="100" step="1" value="40" />
+                </label>
+                <label>
+                  Bank balance
+                  <input id="bankBalance" type="number" min="0" step="1000" value="25000" />
+                </label>
+                <label>
+                  Bank interest rate
+                  <input id="bankInterestRate" type="number" min="0" max="20" step="0.1" value="3.5" />
+                </label>
+                <label>
+                State pension amount
+                  <input id="statePensionAmount" type="number" min="0" step="1" value="12000" />
+                </label>
+                <label>
+                  Defined benefit payments
+                  <input id="definedBenefitPayments" type="number" min="0" step="100" value="20000" />
+                </label>
+                <label>
+                  Defined benefit lump sum
+                  <input id="definedBenefitLumpSum" type="number" min="0" step="100" value="0" />
+                </label>
+              </div>
+              <div class="range-row">
+                <label for="growthRate">Expected return</label>
+                <span id="growthRateValue">6.0%</span>
+                <input id="growthRate" type="range" min="1" max="10" step="0.1" value="6" />
+              </div>
+              <div class="range-row">
+                <label for="inflationRate">Inflation</label>
+                <span id="inflationRateValue">2.5%</span>
+                <input id="inflationRate" type="range" min="0" max="7" step="0.1" value="2.5" />
+              </div>
+            </div>
+          </form>
+        </aside>
+
+        <section class="results-panel" aria-label="Retirement projection results">
+
+          <div class="year-slider-bar" id="yearSliderBar" hidden>
+            <div class="year-slider-track">
+              <span class="year-slider-label" id="yearSliderMin"></span>
+              <input id="planYearSlider" type="range" min="0" max="0" step="1" value="0" aria-label="Select retirement year" />
+              <span class="year-slider-label" id="yearSliderMax"></span>
+            </div>
+            <span class="year-slider-current" id="yearSliderCurrent">-</span>
+          </div>
+
+          <section class="top-summary" aria-label="Selected plan year summary">
+            <dl class="top-summary-grid primary">
+              <div>
+                <dt>Annual spend</dt>
+                <dd id="yearSpend">£0</dd>
+              </div>
+              <div>
+                <dt>Monthly spend</dt>
+                <dd id="monthlySpend">£0</dd>
+              </div>
+              <div>
+                <dt>Tax estimate</dt>
+                <dd id="taxEstimate">£0</dd>
+                <small id="monthlyTaxEstimate">(£0/month)</small>
+              </div>
+              <div>
+                <dt>Bills + holidays</dt>
+                <dd id="billsHolidaysTotal">£0</dd>
+              </div>
+              <div>
+                <dt>Free cash</dt>
+                <dd class="compound-cash" id="freeCashTile">£0/Yr £0/Mth</dd>
+              </div>
+            </dl>
+            <dl class="top-summary-grid secondary">
+              <div>
+                <dt>Annual spend</dt>
+                <dd id="yearSpendToday">-</dd>
+                <small>Today Equiv</small>
+              </div>
+              <div>
+                <dt>Monthly spend</dt>
+                <dd id="monthlySpendToday">-</dd>
+                <small>Today Equiv</small>
+              </div>
+              <div>
+                <dt>Tax estimate</dt>
+                <dd id="taxEstimateToday">-</dd>
+                <small>Today Equiv</small>
+              </div>
+              <div>
+                <dt>Bills + holidays</dt>
+                <dd id="billsHolidaysToday">-</dd>
+                <small>Today Equiv</small>
+              </div>
+              <div>
+                <dt>Free cash</dt>
+                <dd class="compound-cash" id="freeCashToday">-</dd>
+                <small>Today Equiv</small>
+              </div>
+            </dl>
+          </section>
+
+          <div id="planChartsSection" hidden>
+
+            <div class="chart-section">
+              <div class="section-heading">
+                <h2>Projection Trends</h2>
+                <div class="chart-toggle-chips">
+                  <button class="chart-toggle-chip" id="toggleSavingsChart" type="button">Savings &amp; pot</button>
+                  <button class="chart-toggle-chip" id="toggleIncomeChart" type="button">Income</button>
+                  <button class="chart-toggle-chip" id="toggleSpendingChart" type="button">Spending</button>
+                  <button class="chart-toggle-chip" id="togglePreRetirement" type="button">Pre-retirement</button>
+                </div>
+              </div>
+
+              <div id="savingsChartWrap">
+                <canvas id="savingsChartCanvas" height="66" aria-label="Savings and pension pot over time"></canvas>
+              </div>
+
+              <div id="incomeChartWrap">
+                <canvas id="incomeChartCanvas" height="66" aria-label="Income sources over time"></canvas>
+              </div>
+
+              <div id="spendingChartWrap">
+                <div class="spending-chart-header">
+                  <h3>Spending Breakdown</h3>
+                  <span id="spendingChartCaption" class="chart-caption"></span>
+                  <div class="chart-toggle-chips">
+                    <button class="chart-toggle-chip" id="toggleFreeOnly" type="button">Free cash only</button>
+                    <button class="chart-toggle-chip" id="toggleMonthly" type="button">Monthly</button>
+                    <button class="chart-toggle-chip chart-toggle-chip-active" id="toggleRealTerms" type="button">Today's money</button>
+                  </div>
+                </div>
+                <canvas id="spendingChartCanvas" height="66" aria-label="Spending breakdown over time"></canvas>
+              </div>
+            </div>
+
+          </div>
+
+          <aside class="end-values" aria-label="Starting tax year values">
+            <div class="section-heading">
+              <h2>Start of April</h2>
+            </div>
+            <dl>
+              <div>
+                <dt>Pot left</dt>
+                <dd id="startPot">£0</dd>
+              </div>
+              <div>
+                <dt>Crystallised balance</dt>
+                <dd id="startCrystallised">£0</dd>
+              </div>
+              <div>
+                <dt>Crystallised to date</dt>
+                <dd id="startCrystallisedToDate">£0</dd>
+              </div>
+              <div>
+                <dt>Uncryst. pot</dt>
+                <dd id="startUncrystallised">£0</dd>
+              </div>
+              <div>
+                <dt>Bank balance</dt>
+                <dd id="startBankBalance">£0</dd>
+              </div>
+              <div>
+                <dt>TFLs taken</dt>
+                <dd id="startTflsTaken">£0</dd>
+              </div>
+              <div>
+                <dt>LSA left</dt>
+                <dd id="startLsa">£0</dd>
+              </div>
+              <div>
+                <dt>Available TFC</dt>
+                <dd id="startTaxFreeCash">£0</dd>
+              </div>
+            </dl>
+          </aside>
+
+          <section class="chart-section tax-year-section">
+            <div class="section-heading">
+              <h2 id="taxYearHeading">Tax Year</h2>
+              <div class="legend">
+                <span>April to March</span>
+              </div>
+            </div>
+            <div class="timeline-table-wrap">
+              <table class="timeline-table">
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th><span>Income</span><span>desired</span></th>
+                    <th>Income</th>
+                    <th>Bills</th>
+                    <th>Holidays</th>
+                    <th>Tax</th>
+                    <th>TFC</th>
+                    <th>Partner</th>
+                    <th>ISA</th>
+                    <th>Savings</th>
+                    <th><span>Premium</span><span>bonds</span></th>
+                    <th><span>Taxable</span><span>draw</span></th>
+                    <th><span>Free</span><span>cash</span></th>
+                    <th><span>Pot</span><span>left</span></th>
+                  </tr>
+                </thead>
+                <tbody id="taxYearTimeline"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <aside class="end-values" aria-label="Projected end of tax year values">
+            <div class="section-heading">
+              <h2>End of March</h2>
+            </div>
+            <dl>
+              <div>
+                <dt>Pot left</dt>
+                <dd id="endPot">£0</dd>
+              </div>
+              <div>
+                <dt>Crystallised balance</dt>
+                <dd id="endCrystallised">£0</dd>
+              </div>
+              <div>
+                <dt>Crystallised to date</dt>
+                <dd id="endCrystallisedToDate">£0</dd>
+              </div>
+              <div>
+                <dt>Uncryst. pot</dt>
+                <dd id="endUncrystallised">£0</dd>
+              </div>
+              <div>
+                <dt>Bank balance</dt>
+                <dd id="endBankBalance">£0</dd>
+              </div>
+              <div>
+                <dt>TFLs taken</dt>
+                <dd id="endTflsTaken">£0</dd>
+              </div>
+              <div>
+                <dt>LSA left</dt>
+                <dd id="endLsa">£0</dd>
+              </div>
+              <div>
+                <dt>Available TFC</dt>
+                <dd id="endTaxFreeCash">£0</dd>
+              </div>
+            </dl>
+          </aside>
+
+          <aside class="end-values" aria-label="Tax year value changes">
+            <div class="section-heading">
+              <h2>Change</h2>
+            </div>
+            <dl>
+              <div>
+                <dt>Pot left</dt>
+                <dd id="changePot">£0</dd>
+              </div>
+              <div>
+                <dt>Crystallised balance</dt>
+                <dd id="changeCrystallised">£0</dd>
+              </div>
+              <div>
+                <dt>Crystallised to date</dt>
+                <dd id="changeCrystallisedToDate">£0</dd>
+              </div>
+              <div>
+                <dt>Uncryst. pot</dt>
+                <dd id="changeUncrystallised">£0</dd>
+              </div>
+              <div>
+                <dt>Bank balance</dt>
+                <dd id="changeBankBalance">£0</dd>
+              </div>
+              <div>
+                <dt>TFLs taken</dt>
+                <dd id="changeTflsTaken">£0</dd>
+              </div>
+              <div>
+                <dt>LSA left</dt>
+                <dd id="changeLsa">£0</dd>
+              </div>
+              <div>
+                <dt>Available TFC</dt>
+                <dd id="changeTaxFreeCash">£0</dd>
+              </div>
+            </dl>
+          </aside>
+
+          <div class="chart-section">
+            <div class="section-heading">
+              <h2>Long-Term Balance to Pot Exhaustion</h2>
+              <div class="legend">
+                <span><i class="dot saved"></i>Savings</span>
+                <span><i class="dot spent"></i>Spending draw</span>
+              </div>
+            </div>
+            <canvas id="projectionChart" width="1100" height="430" aria-label="Retirement balance chart"></canvas>
+          </div>
+
+          <div class="insight-row">
+            <article class="insight">
+              <h3>Optimization Target</h3>
+              <p id="optimizerMessage"></p>
+            </article>
+            <article class="insight">
+              <h3>Levers</h3>
+              <ul id="leversList"></ul>
+            </article>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./optimizer-embedded.js?v=20260614-optimiser-tile-composite"></script>
+  </body>
+</html>
