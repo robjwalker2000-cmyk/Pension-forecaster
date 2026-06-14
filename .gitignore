@@ -1,0 +1,12 @@
+# Claude Code tooling — contains local paths, not needed in repo
+.claude/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Misc
+*.log

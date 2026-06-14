@@ -1,8 +1,13 @@
 :root {
-  --bg: #1a2236;
+  --bg: #07111d;
   --bg-2: #1e2840;
-  --panel: rgba(10, 14, 26, 0.88);
-  --panel-strong: rgba(8, 12, 22, 0.97);
+  --bg-image: url('./background.jpeg');
+  --bg-opacity: 0.34;
+  --panel: rgba(9, 18, 33, 0.48);
+  --panel-strong: rgba(8, 12, 22, 0.85);
+  --panel-a: 0.48;
+  --panel-b: 0.38;
+  --panel-c: 0.28;
   --card: rgba(12, 16, 30, 0.97);
   --card-2: rgba(8, 12, 22, 0.95);
   --card-warn: rgba(30, 14, 14, 0.96);
@@ -37,11 +42,6 @@ body {
   font-family: "Inter", "SF Pro Display", system-ui, sans-serif;
   color: var(--text);
   background-color: var(--bg);
-  background-image:
-    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(0, 212, 184, 0.28) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 85% 10%, rgba(124, 58, 237, 0.32) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 60% at 50% 100%, rgba(37, 99, 235, 0.22) 0%, transparent 60%),
-    radial-gradient(ellipse 30% 30% at 10% 80%, rgba(0, 212, 184, 0.14) 0%, transparent 50%);
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
@@ -51,31 +51,25 @@ body::before {
   content: "";
   position: fixed;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(99, 179, 237, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99, 179, 237, 0.04) 1px, transparent 1px);
-  background-size: 48px 48px;
-  pointer-events: none;
   z-index: 0;
+  pointer-events: none;
+  background-image: var(--bg-image);
+  background-size: cover;
+  background-position: center;
+  opacity: var(--bg-opacity);
 }
 
 body::after {
   content: "";
   position: fixed;
-  top: -30%;
-  left: -20%;
-  width: 70%;
-  height: 70%;
-  background: radial-gradient(circle, rgba(0, 212, 184, 0.06) 0%, transparent 65%);
-  border-radius: 50%;
-  pointer-events: none;
+  inset: 0;
   z-index: 0;
-  animation: drift 18s ease-in-out infinite alternate;
-}
-
-@keyframes drift {
-  from { transform: translate(0, 0) scale(1); }
-  to   { transform: translate(8%, 6%) scale(1.08); }
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(0, 212, 184, 0.28) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 85% 10%, rgba(124, 58, 237, 0.32) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 60% at 50% 100%, rgba(37, 99, 235, 0.22) 0%, transparent 60%),
+    radial-gradient(ellipse 30% 30% at 10% 80%, rgba(0, 212, 184, 0.14) 0%, transparent 50%);
 }
 
 .page-shell {
@@ -962,7 +956,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   min-width: 1120px;
-  background: rgba(14, 20, 36, 0.7);
+  background: var(--table-bg, rgba(14, 20, 36, 0.7));
   --sticky-year-width: 64px;
   --sticky-calendar-width: 92px;
   --sticky-age-width: 58px;
@@ -1026,11 +1020,11 @@ th.sticky-column {
 }
 
 tbody .sticky-column {
-  background: rgba(14, 20, 36, 0.97);
+  background: rgba(14, 20, 36, var(--panel-b, 0.97));
 }
 
 tbody tr:nth-child(even) .sticky-column {
-  background: rgba(18, 26, 46, 0.97);
+  background: rgba(18, 26, 46, var(--panel-b, 0.97));
 }
 
 th:first-child,
@@ -1145,56 +1139,48 @@ tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
 }
 
 .theme-settings-button {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
   border: none;
-  /* Layer order (top → bottom):
-     1. top-left gloss highlight
-     2. bottom-right shadow vignette
-     3. central white core (gives the "lit from inside" bloom)
-     4. conic rainbow base */
   background:
     radial-gradient(circle at 35% 32%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 55%),
     radial-gradient(circle at 68% 72%, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0) 55%),
     radial-gradient(circle at 50% 50%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 48%),
-    conic-gradient(
-      hsl(0,100%,60%), hsl(30,100%,60%), hsl(60,100%,60%),
-      hsl(90,100%,60%), hsl(120,100%,60%), hsl(150,100%,60%),
-      hsl(180,100%,60%), hsl(210,100%,60%), hsl(240,100%,60%),
-      hsl(270,100%,60%), hsl(300,100%,60%), hsl(330,100%,60%),
-      hsl(360,100%,60%)
-    );
+    conic-gradient(hsl(0,100%,60%), hsl(60,100%,60%), hsl(120,100%,60%), hsl(180,100%,60%), hsl(240,100%,60%), hsl(300,100%,60%), hsl(360,100%,60%));
   box-shadow: 0 1px 4px rgba(0,0,0,0.35), inset 0 1px 1px rgba(255,255,255,0.4);
-  color: transparent; /* hide the ✦ glyph — the sphere is the icon now */
   cursor: pointer;
-  font-size: 0.55rem;
-  line-height: 1;
-  transition: box-shadow 0.2s, transform 0.6s;
+  transition: transform 0.6s, box-shadow 0.2s;
   flex-shrink: 0;
 }
 
 .theme-settings-button:hover {
-  box-shadow: 0 2px 10px rgba(0,0,0,0.4), 0 0 16px rgba(255,255,255,0.2), inset 0 1px 1px rgba(255,255,255,0.4);
   transform: rotate(180deg);
 }
 
 .theme-panel {
+  display: none;
   position: absolute;
-  top: calc(100% + 10px);
-  left: 0;
+  top: calc(100% + 8px);
+  right: 0;
   z-index: 30;
-  width: 252px;
-  background: var(--panel-strong);
+  width: 310px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--theme-panel-bg, rgba(8, 12, 22, 0.92));
   border: 1px solid var(--line-strong);
-  border-radius: 18px;
+  border-radius: 14px;
   padding: 16px;
+  backdrop-filter: blur(20px);
   box-shadow:
-    0 24px 60px rgba(0, 0, 0, 0.55),
-    0 0 0 1px rgba(0, 0, 0, 0.25),
+    0 16px 48px rgba(0, 0, 0, 0.5),
     0 0 30px rgba(0, 212, 184, 0.06);
+}
+
+.theme-panel.open {
+  display: block;
   animation: panel-drop 0.18s cubic-bezier(0.34, 1.3, 0.64, 1);
 }
 
@@ -1212,14 +1198,81 @@ tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
   color: var(--muted);
 }
 
+.theme-custom-section {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
+.theme-section-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.theme-control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.theme-control-row label {
+  font-size: 0.74rem;
+  color: var(--muted);
+  flex: 1;
+  display: block;
+}
+
+.theme-control-row select {
+  flex: 2;
+  min-width: 0;
+  background: var(--panel-strong);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 5px 8px;
+  width: auto;
+}
+
+.theme-control-row input[type="file"] {
+  flex: 2;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  width: auto;
+}
+
+.theme-control-row input[type="range"] {
+  flex: 2;
+  accent-color: var(--accent);
+  width: auto;
+}
+
+.theme-range-value {
+  width: 36px;
+  text-align: right;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
 .theme-chips {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .theme-chip {
-  flex: 1;
-  padding: 8px 4px;
+  flex: 1 1 calc(33% - 4px);
+  min-width: 0;
+  padding: 7px 6px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: transparent;
@@ -1366,14 +1419,14 @@ html[data-theme="original"] body {
 }
 
 html[data-theme="original"] body::before {
-  background-image:
-    linear-gradient(rgba(66, 50, 28, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(66, 50, 28, 0.045) 1px, transparent 1px);
+  opacity: 0;
 }
 
 html[data-theme="original"] body::after {
-  background: radial-gradient(circle, rgba(15, 118, 110, 0.07), transparent 65%);
-  animation: none;
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(180, 83, 9, 0.16), transparent 24%),
+    linear-gradient(180deg, #fbf7f0 0%, #f4efe6 48%, #efe4d1 100%);
 }
 
 html[data-theme="original"] h1 {
@@ -1438,15 +1491,11 @@ html[data-theme="original"] select option {
 
 /* ─── Metallic theme overrides ─── */
 
-html[data-theme="metallic"] body::before {
-  background-image:
-    linear-gradient(rgba(210, 218, 235, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(210, 218, 235, 0.035) 1px, transparent 1px);
-}
-
 html[data-theme="metallic"] body::after {
-  background: radial-gradient(circle, rgba(200, 215, 240, 0.05), transparent 65%);
-  animation: none;
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 10%, rgba(122, 184, 216, 0.09) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 80% at 80% 90%, rgba(200, 160, 96, 0.08) 0%, transparent 60%),
+    linear-gradient(160deg, rgba(12, 16, 20, 0.62) 0%, rgba(16, 22, 30, 0.55) 100%);
 }
 
 /* Chrome-gradient title */
@@ -1464,9 +1513,9 @@ html[data-theme="metallic"] h1 {
 /* Brushed-steel panels */
 html[data-theme="metallic"] .panel {
   background: linear-gradient(160deg,
-    rgba(78, 83, 94, 0.92) 0%,
-    rgba(48, 51, 58, 0.95) 40%,
-    rgba(62, 66, 76, 0.92) 100%
+    rgba(78, 83, 94, var(--panel-a)) 0%,
+    rgba(48, 51, 58, var(--panel-b)) 40%,
+    rgba(62, 66, 76, var(--panel-a)) 100%
   );
 }
 
@@ -1484,10 +1533,10 @@ html[data-theme="metallic"] .panel::before {
 /* Chrome summary cards */
 html[data-theme="metallic"] .summary-card {
   background: linear-gradient(145deg,
-    rgba(90, 96, 108, 0.97) 0%,
-    rgba(55, 58, 66, 0.96) 35%,
-    rgba(72, 77, 88, 0.97) 65%,
-    rgba(48, 51, 60, 0.96) 100%
+    rgba(90, 96, 108, var(--panel-a)) 0%,
+    rgba(55, 58, 66, var(--panel-b)) 35%,
+    rgba(72, 77, 88, var(--panel-a)) 65%,
+    rgba(48, 51, 60, var(--panel-b)) 100%
   );
 }
 
@@ -1506,29 +1555,29 @@ html[data-theme="metallic"] .summary-card::after {
 
 html[data-theme="metallic"] .summary-card-warning {
   background: linear-gradient(145deg,
-    rgba(90, 68, 64, 0.97) 0%,
-    rgba(60, 42, 38, 0.96) 50%,
-    rgba(78, 58, 54, 0.97) 100%
+    rgba(90, 68, 64, var(--panel-a)) 0%,
+    rgba(60, 42, 38, var(--panel-b)) 50%,
+    rgba(78, 58, 54, var(--panel-a)) 100%
   );
   border-color: rgba(224, 120, 120, 0.3);
 }
 
 html[data-theme="metallic"] .summary-card-success {
   background: linear-gradient(145deg,
-    rgba(58, 82, 68, 0.97) 0%,
-    rgba(38, 58, 46, 0.96) 50%,
-    rgba(50, 72, 58, 0.97) 100%
+    rgba(58, 82, 68, var(--panel-a)) 0%,
+    rgba(38, 58, 46, var(--panel-b)) 50%,
+    rgba(50, 72, 58, var(--panel-a)) 100%
   );
   border-color: rgba(104, 200, 152, 0.3);
 }
 
 /* Steel table */
 html[data-theme="metallic"] table {
-  background: rgba(40, 43, 50, 0.85);
+  background: var(--table-bg);
 }
 
 html[data-theme="metallic"] th {
-  background: linear-gradient(180deg, rgba(28, 30, 36, 0.98), rgba(22, 24, 29, 0.98));
+  background: linear-gradient(180deg, rgba(28, 30, 36, var(--panel-c)), rgba(22, 24, 29, var(--panel-c)));
   color: #8890a4;
   border-bottom-color: rgba(210, 218, 235, 0.14);
 }
@@ -1538,15 +1587,15 @@ html[data-theme="metallic"] td {
 }
 
 html[data-theme="metallic"] tbody .sticky-column {
-  background: rgba(40, 43, 50, 0.98);
+  background: rgba(40, 43, 50, var(--panel-b));
 }
 
 html[data-theme="metallic"] tbody tr:nth-child(even) {
-  background: rgba(50, 53, 62, 0.5);
+  background: rgba(50, 53, 62, var(--panel-c));
 }
 
 html[data-theme="metallic"] tbody tr:nth-child(even) .sticky-column {
-  background: rgba(50, 53, 62, 0.98);
+  background: rgba(50, 53, 62, var(--panel-b));
 }
 
 html[data-theme="metallic"] tbody tr:hover td {
@@ -1583,6 +1632,86 @@ html[data-theme="metallic"] .growth-rate-grid label.growth-scenario-selected inp
   border-color: rgba(122, 184, 216, 0.55);
   background: rgba(122, 184, 216, 0.1);
   box-shadow: 0 0 12px rgba(122, 184, 216, 0.15);
+}
+
+/* ─── Bright theme overrides ─── */
+
+html[data-theme="bright"] body::after {
+  background:
+    radial-gradient(ellipse 80% 55% at 15% 5%, rgba(244, 179, 94, 0.22) 0%, transparent 58%),
+    radial-gradient(ellipse 60% 70% at 85% 90%, rgba(85, 214, 165, 0.14) 0%, transparent 55%),
+    linear-gradient(160deg, rgba(32, 20, 13, 0.52) 0%, rgba(32, 20, 13, 0.44) 100%);
+}
+
+html[data-theme="bright"] h1 {
+  background: linear-gradient(135deg, #fff7e8 0%, #f4b35e 55%, #55d6a5 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+html[data-theme="bright"] .panel::before {
+  background: linear-gradient(90deg, transparent, rgba(244, 179, 94, 0.32), transparent);
+}
+
+html[data-theme="bright"] .summary-card::before {
+  background: linear-gradient(90deg,
+    transparent, rgba(244, 179, 94, 0.4), rgba(85, 214, 165, 0.35), transparent);
+}
+
+html[data-theme="bright"] .summary-card::after {
+  background: radial-gradient(circle, rgba(244, 179, 94, 0.07), transparent 70%);
+}
+
+html[data-theme="bright"] .summary-card:hover {
+  box-shadow: var(--shadow), 0 0 28px rgba(244, 179, 94, 0.12);
+}
+
+html[data-theme="bright"] .version-badge {
+  background: rgba(244, 179, 94, 0.1);
+  border-color: rgba(244, 179, 94, 0.38);
+  color: #f4b35e;
+}
+
+html[data-theme="bright"] .theme-chip-active {
+  background: rgba(244, 179, 94, 0.14);
+  border-color: rgba(244, 179, 94, 0.5);
+  color: #f4b35e;
+}
+
+html[data-theme="bright"] table {
+  background: var(--table-bg);
+}
+
+html[data-theme="bright"] th {
+  background: rgba(32, 20, 13, var(--panel-c));
+  color: #d8bb8d;
+  border-bottom-color: rgba(255, 216, 160, 0.14);
+}
+
+html[data-theme="bright"] td {
+  border-bottom-color: rgba(255, 216, 160, 0.07);
+}
+
+html[data-theme="bright"] tbody .sticky-column {
+  background: rgba(40, 25, 14, var(--panel-b));
+}
+
+html[data-theme="bright"] tbody tr:nth-child(even) {
+  background: rgba(70, 44, 24, var(--panel-c));
+}
+
+html[data-theme="bright"] tbody tr:nth-child(even) .sticky-column {
+  background: rgba(54, 34, 19, var(--panel-b));
+}
+
+html[data-theme="bright"] tbody tr:hover td {
+  background: rgba(244, 179, 94, 0.05);
+}
+
+html[data-theme="bright"] select option {
+  background: #2a1a0a;
+  color: #fff7e8;
 }
 
 /* ─── Income vertical slider ─── */
