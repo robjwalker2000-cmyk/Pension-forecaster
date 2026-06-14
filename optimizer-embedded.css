@@ -28,6 +28,7 @@
   --input-bg:       rgba(255, 255, 255, 0.04);
   --button-text:    #0b0f1a;
   --accent-dark:    #00a896;
+  --panel-blur:     18px;
   font-family: Inter, "SF Pro Display", system-ui, sans-serif;
 }
 
@@ -178,7 +179,7 @@ h1 {
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: var(--panel);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(var(--panel-blur));
   color: var(--success);
   font-weight: 800;
   text-align: center;
@@ -223,7 +224,7 @@ h1 {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(var(--panel-blur));
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.08);
   position: relative;
   overflow: hidden;
@@ -548,7 +549,7 @@ input[type="range"] { accent-color: var(--accent); }
   border-radius: var(--radius);
   padding: 12px;
   background: var(--panel);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(var(--panel-blur));
 }
 
 .tax-year-section { margin-top: 16px; }
@@ -606,7 +607,7 @@ input[type="range"] { accent-color: var(--accent); }
   border-radius: var(--radius);
   padding: 16px;
   background: var(--panel);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(var(--panel-blur));
 }
 
 .end-values dl {
@@ -690,7 +691,7 @@ canvas {
   border-radius: var(--radius);
   padding: 16px;
   background: var(--panel);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(var(--panel-blur));
 }
 
 .insight h3 {
@@ -924,7 +925,7 @@ body.optimizer-readonly .insight {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.08);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(var(--panel-blur));
 }
 
 body.optimizer-readonly .results-panel {

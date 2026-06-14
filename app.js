@@ -242,6 +242,7 @@ const OPTIMISER_THEME_VARS = [
   "--card", "--card-2", "--card-warn", "--card-warn-2", "--card-success", "--card-success-2",
   "--line", "--line-strong", "--text", "--muted", "--accent", "--accent-2", "--accent-glow",
   "--danger", "--success", "--shadow", "--radius", "--input-bg", "--button-text", "--table-bg",
+  "--panel-blur",
 ];
 
 function loadState() {
@@ -4680,6 +4681,15 @@ function applyPanelTransparency() {
   document.body.style.setProperty("--control-range-track-bg", `rgba(${r},${g},${bl},0.92)`);
 
   if (valueEl) valueEl.textContent = `${clear}%`;
+
+  const blurSlider = document.getElementById("panel-blur");
+  const blurValueEl = document.getElementById("panel-blur-value");
+  if (blurSlider) {
+    const blur = parseInt(blurSlider.value);
+    document.body.style.setProperty("--panel-blur", `${blur}px`);
+    if (blurValueEl) blurValueEl.textContent = `${blur}px`;
+  }
+
   syncOptimiserTheme();
 }
 
@@ -4750,6 +4760,7 @@ function saveThemePrefs() {
     bgHue: customBgHue, tileHue: customTileHue, canvasHue: customCanvasHue, textHue: customTextHue,
     bgMode: bgModeEl ? bgModeEl.value : "photo",
     transparency: transparencyEl ? transparencyEl.value : "52",
+    blur: (document.getElementById("panel-blur") || {}).value ?? "18",
   }));
 }
 
@@ -4765,6 +4776,8 @@ function loadThemePrefs() {
     const transparencyEl = document.getElementById("panel-transparency");
     if (bgModeEl && saved.bgMode) bgModeEl.value = saved.bgMode;
     if (transparencyEl && saved.transparency) transparencyEl.value = saved.transparency;
+    const blurEl = document.getElementById("panel-blur");
+    if (blurEl && saved.blur != null) blurEl.value = saved.blur;
   } catch {
     activeTheme = "metallic";
   }
@@ -4847,6 +4860,12 @@ document.getElementById("panel-transparency").addEventListener("input", () => {
   applyPanelTransparency();
   saveThemePrefs();
   render();
+});
+
+// Panel blur slider
+document.getElementById("panel-blur").addEventListener("input", () => {
+  applyPanelTransparency();
+  saveThemePrefs();
 });
 
 // Custom hue sliders

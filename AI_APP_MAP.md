@@ -2,19 +2,22 @@
 
 ## 1. What this app does
 
-Pension Forecaster is a standalone browser app for modelling UK retirement cashflow, pension drawdown, tax, TFLS, savings, partner income, and year-by-year pot depletion. It is for a user who wants to test retirement scenarios interactively without working directly in the original spreadsheet.
+Pension Forecaster is a standalone browser app for modelling UK retirement cashflow, pension drawdown, tax, TFLS, savings, partner income, year-by-year pot depletion, and a read-only retirement optimiser view. It is for a user who wants to test retirement scenarios interactively without working directly in the original spreadsheet.
 
 ## 2. Current status
 
 Working now:
 - Single-page app runs from `index.html` with no build step.
+- Header view switcher slides between the main **Forecaster** view and an embedded read-only **Optimiser** view.
 - User inputs update the forecast live.
 - Projection table supports summary, detailed, granular, and custom views.
 - Charts show spending and income/drawdown composition.
 - Plan data can be imported/exported as JSON, exported to Excel-style tables/formula workbooks, exported to PDF, and shared by URL.
+- Optimiser reads the current forecaster plan through `postMessage`; it no longer requires importing a separate exported plan file when used inside this app.
 - Five themes: Classic (warm parchment), Bright (dark amber/fire), Dark (deep navy), Metal (brushed steel), Custom (hue sliders).
 - Background photo layer (`background.jpeg`) displayed via `body::before`; mode and opacity controlled by the theme panel (Photo / Soft / Vivid / Plain).
-- Panel glass transparency slider (20–100 %) updates all panels, summary tiles, table, and sticky columns in real time via CSS custom properties `--panel-a/b/c` and `--table-bg`.
+- Panel glass **Transparency** slider (20–100 %) and **Blur** slider (0–24 px) update all panels, summary tiles, table, and sticky columns in real time via CSS custom properties `--panel-a/b/c`, `--table-bg`, and `--panel-blur`. Both values are persisted in `localStorage` and synced to the embedded optimiser iframe via `OPTIMISER_THEME_VARS`.
+- Panel stacking and double-blur are prevented (STYLE_GUIDE §13): `.theme-panel`, tooltips, dropdowns, and any surface that floats over a glass panel use opaque `--theme-panel` / `--control-popover-bg` backgrounds with **no** `backdrop-filter`. Only `.panel`, `.card`, `.controls-panel`, `.results-panel`, `.chart-section`, `.end-values`, `.insight`, and `.status-pill` use `backdrop-filter: blur(var(--panel-blur))`.
 - Clicking the version badge briefly shows the last-modified date then reverts to the version string.
 - Tax/drawdown logic includes UK income tax bands, personal allowance taper, personal savings allowance, TFLS, lump sum allowance, regular drawdown, maximise drawdown, and 25/75 pairing options.
 - Basic setup popup supports first-run/reset onboarding.
@@ -47,9 +50,12 @@ Key libraries:
 
 ## 4. Folder structure
 
-- `index.html`: Main app markup, panels, inputs, modals, menus, and templates.
-- `app.js`: All state management, projection logic, tax/drawdown calculations, chart rendering, table rendering, import/export, share links, themes, and event handlers.
-- `styles.css`: Full visual styling, layout, responsive rules, panels, controls, charts, tables, modals, and theme-specific styling.
+- `index.html`: Main app markup, view switcher, panels, inputs, modals, menus, templates, and embedded optimiser iframe.
+- `app.js`: All state management, projection logic, tax/drawdown calculations, chart rendering, table rendering, import/export, share links, themes, optimiser plan/theme messaging, and event handlers.
+- `styles.css`: Full visual styling, layout, responsive rules, panels, controls, charts, tables, modals, view switcher, and theme-specific styling.
+- `optimizer-embedded.html`: Embedded read-only optimiser markup.
+- `optimizer-embedded.css`: Embedded optimiser styling aligned with parent app theme variables.
+- `optimizer-embedded.js`: Optimiser model/rendering plus parent plan/theme message bridge.
 - `STYLE_GUIDE.md`: Design system notes for this app family, including colours, theme tokens, fonts, and interaction patterns.
 - `README.md`: Short project overview and basic open/run notes.
 - `AI_APP_MAP.md`: This file. Read first when using AI to modify the app.
@@ -66,6 +72,7 @@ Key libraries:
 - Configure drawdown behaviour: regular drawdown, year 1 TFLS, TFLS by 75, maximise drawdown, force 25/75 pairing.
 - Add exceptional income/expense events and route them through drawdown or savings.
 - View summary tiles, spending chart, income chart, and projection table.
+- Switch to Optimiser to review the current plan through optimiser summary tiles and projection charts without importing anything.
 - Switch table views or choose custom fields.
 - Import a plan, export a plan, export visible table, export formula workbook, export PDF, or create a share link.
 
@@ -83,7 +90,8 @@ Key state groups:
 - Drawdown: regular drawdown, tax optimisation mode, TFLS by 75, maximise basic-rate drawdown, force 25/75 pairing, year-one TFLS settings.
 - Events: user-added exceptional income/expense items with amount, timing, taxable flag, and routing.
 - UI state: table view, selected custom fields, granular toggles, panel visibility, chart modes.
-- Theme state: active theme (`original` | `bright` | `dark` | `metallic` | `custom`), custom hue sliders (bgHue, tileHue, canvasHue, textHue), background mode (`photo` | `soft` | `vivid` | `plain`), panel transparency value (20–100). All persisted to `localStorage` under `pension-forecaster-theme-v1`.
+- Theme state: active theme (`original` | `bright` | `dark` | `metallic` | `custom`), custom hue sliders (bgHue, tileHue, canvasHue, textHue), background mode (`photo` | `soft` | `vivid` | `plain`), panel transparency value (20–100), panel blur value (0–24). All persisted to `localStorage` under `pension-forecaster-theme-v1`.
+- Optimiser integration state is transient: the parent app posts the current plan export and selected theme variables into the iframe after render, theme changes, and iframe load.
 
 Projection output is created by `calculateProjection(source)` and returns derived rows with annual fields such as age, income, bills, holidays, tax, TFLS, taxable drawdown, savings used/left, pot balances, crystallisation, and free cash.
 
@@ -112,6 +120,8 @@ Current UI rules:
 - Single-screen app, not a marketing landing page.
 - Left control panel with grouped panels; right/main area shows summary, charts, and projection table.
 - Preserve existing theme system and CSS custom properties; see `STYLE_GUIDE.md` for tokens and patterns.
+- **Panel stacking rule (STYLE_GUIDE §13):** only one transparent + blurred surface per visual stack. Any surface that floats *over* a glass panel (`.theme-panel`, tooltips, dropdowns) must use an opaque background (`--theme-panel` or `--control-popover-bg`) and **no** `backdrop-filter`. Glass panels use `backdrop-filter: blur(var(--panel-blur))` and never nest inside each other with blur.
+- Popover controls should stay opaque. Use `--control-popover-bg` for dropdown/theme/slider popups and `--control-range-track-bg` for vertical slider tracks; do not tie these to the panel transparency or blur sliders.
 - Keep controls compact and scannable.
 - Use existing button, dropdown, toggle, modal, table, and panel patterns.
 - Avoid adding new visual systems unless necessary.
@@ -121,8 +131,10 @@ Current UI rules:
 
 Theme panel behaviour:
 - Opened by the 36 px colour-sphere button (top-right of header); uses `.open` class toggle, not `hidden` attribute.
-- Contains: Theme chips (Classic / Bright / Dark / Metal / Custom), Background section (Mode select + Image file input), Panel Glass section (Transparency slider 20–100 %), Custom Colours section (visible only in Custom theme).
-- `applyPanelTransparency()` sets `--panel-a/b/c`, `--panel`, `--panel-strong`, all `--card-*` vars, and `--table-bg` on `document.body` so every surface responds immediately.
+- Contains: Theme chips (Classic / Bright / Dark / Metal / Custom), Background section (Mode select + Image file input), Panel Glass section (Transparency slider 20–100 %, Blur slider 0–24 px), Custom Colours section (visible only in Custom theme).
+- `applyPanelTransparency()` sets `--panel-a/b/c`, `--panel`, `--panel-strong`, all `--card-*` vars, and `--table-bg` on `document.body` so every surface responds immediately. It also reads the Blur slider and sets `--panel-blur` on `document.body`.
+- `applyPanelTransparency()` also sets opaque control-surface variables on `document.body`; these should remain visually solid even though panel/card variables become transparent.
+- The `.theme-panel` element itself uses `--theme-panel` (opaque) background with no `backdrop-filter` — it is a popover over glass, not glass itself.
 - `applyBackgroundMode()` controls `--bg-image` and `--bg-opacity` on `body::before`. Classic (`original`) theme forces `body::before { opacity: 0 }` via CSS so it always uses the parchment gradient; other themes respect the Mode selector.
 - Version badge click: shows last-modified date for ~2.5 s then reverts to the version string. Behaviour is in `showVersionChangeDate()` in `app.js`.
 
@@ -130,7 +142,7 @@ Adding a new theme:
 1. Add a preset object to `THEME_PRESETS` in `app.js`.
 2. Add the theme name to the valid-themes list in `loadThemePrefs()`.
 3. Add a chip to the `.theme-chips` div in `index.html`.
-4. Add `html[data-theme="name"] body::after` (gradient overlay), `h1`, panel shimmer, and table/sticky-column overrides in `styles.css`.
+4. Add `html[data-theme="name"] body::after` (subtle accent glows only — **no dark `linear-gradient` overlay**; dark overlays mask the background photo), `h1`, panel shimmer, and table/sticky-column overrides in `styles.css`.
 5. Add a case to `getPanelBaseRgb()` and `getCardBaseRgbs()` in `app.js` so the transparency slider uses the correct base colours.
 6. Add a `backgroundColor` case in `applyTheme()` in `app.js`.
 
@@ -179,7 +191,7 @@ No build step.
 
 Deploy:
 
-Deploy `index.html`, `styles.css`, `app.js`, `background.jpeg`, `README.md`, and any documentation files to a static host such as GitHub Pages. The background photo must be in the same directory as `index.html`.
+Deploy `index.html`, `styles.css`, `app.js`, `optimizer-embedded.html`, `optimizer-embedded.css`, `optimizer-embedded.js`, `background.jpeg`, `README.md`, and any documentation files to a static host such as GitHub Pages. The background photo and optimiser embedded files must be in the same directory as `index.html`.
 
 ## 12. AI working instructions
 

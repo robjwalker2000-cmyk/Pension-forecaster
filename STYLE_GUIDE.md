@@ -1,5 +1,5 @@
 # Rob's Mini-App Style Guide
-# Version 2.0 — updated from Pension Forecaster v4.0
+# Version 2.2 — updated from Pension Forecaster v4.3
 #
 # Purpose: apply this design system to new vanilla-JS SPAs so they share
 # the same look, themes, colour wheel, and interaction patterns.
@@ -47,6 +47,8 @@ Muted notes: 0.84rem
   --accent:        #00d4b8;           /* teal */
   --accent-2:      #7c3aed;           /* violet */
   --accent-glow:   rgba(0, 212, 184, 0.25);
+  --control-popover-bg: #08101c;       /* opaque dropdown/popover surface */
+  --control-range-track-bg: #121a2b;   /* opaque vertical slider track */
   --violet-glow:   rgba(124, 58, 237, 0.2);
   --danger:        #f87171;
   --success:       #34d399;
@@ -69,8 +71,10 @@ Muted notes: 0.84rem
 |-----------------|------|
 | --bg            | Page background colour |
 | --panel         | Frosted-glass panel background |
-| --panel-strong  | Opaque panel / dropdown background |
-| --theme-panel-bg | Theme panel fixed background (ignores transparency slider — set by applyTheme only) |
+| --panel-strong  | Stronger panel background; can still be affected by transparency controls |
+| --theme-panel-bg | Theme panel opaque background (ignores transparency slider — set by applyTheme) |
+| --control-popover-bg | Opaque dropdown/popover background for menus and slider popups |
+| --control-range-track-bg | Opaque vertical slider track background |
 | --card          | Summary card gradient stop A |
 | --card-2        | Summary card gradient stop B |
 | --card-warn     | Warning card gradient (red tint) |
@@ -122,6 +126,8 @@ const THEME_PRESETS = {
     "--accent":       "#f4b35e",
     "--accent-2":     "#55d6a5",
     "--accent-glow":  "rgba(244, 179, 94, 0.28)",
+    "--control-popover-bg": "#2a1a0a",
+    "--control-range-track-bg": "#3a2510",
     "--button-text":  "#2a1200",
     "--danger":       "#ff7b7b",
     "--success":      "#55d6a5",
@@ -145,6 +151,8 @@ const THEME_PRESETS = {
     "--muted":        "#6c5b48",
     "--accent":       "#0f766e",
     "--accent-2":     "#b45309",
+    "--control-popover-bg": "#fffdf9",
+    "--control-range-track-bg": "#f3eadc",
     "--danger":       "#b42318",
     "--success":      "#15803d",
     "--shadow":       "0 20px 50px rgba(56,35,7,0.12), 0 4px 12px rgba(56,35,7,0.08)",
@@ -168,6 +176,8 @@ const THEME_PRESETS = {
     "--accent":       "#00d4b8",
     "--accent-2":     "#7c3aed",
     "--accent-glow":  "rgba(0, 212, 184, 0.28)",
+    "--control-popover-bg": "#08101c",
+    "--control-range-track-bg": "#121a2b",
     "--button-text":  "#0b0f1a",
     "--danger":       "#f87171",
     "--success":      "#34d399",
@@ -192,6 +202,8 @@ const THEME_PRESETS = {
     "--accent":       "#7ab8d8",
     "--accent-2":     "#c8a060",
     "--accent-glow":  "rgba(122, 184, 216, 0.28)",
+    "--control-popover-bg": "#26282e",
+    "--control-range-track-bg": "#181a1e",
     "--button-text":  "#0e1012",
     "--danger":       "#e07878",
     "--success":      "#68c898",
@@ -230,6 +242,8 @@ function buildCustomVars(bgHue, tileHue, canvasHue, textHue) {
     "--accent":       `hsl(${bgHue}, 80%, 55%)`,
     "--accent-2":     `hsl(${(bgHue + 130) % 360}, 68%, 58%)`,
     "--accent-glow":  `hsla(${bgHue}, 80%, 55%, 0.3)`,
+    "--control-popover-bg": `hsl(${tileHue}, 42%, ${Math.max(3, cardL - 2)}%)`,
+    "--control-range-track-bg": `hsl(${tileHue}, 38%, ${cardL + 8}%)`,
     "--button-text":  `hsl(${canvasHue}, 30%, 10%)`,
     "--danger":       "#f87171",
     "--success":      "#34d399",
@@ -397,6 +411,8 @@ function applyPanelTransparency() {
   document.body.style.setProperty("--card-success",   cv(cards.success,  a));
   document.body.style.setProperty("--card-success-2", cv(cards.success2, b));
   document.body.style.setProperty("--table-bg",       `rgba(${r},${g},${bl},${c})`);
+  document.body.style.setProperty("--control-popover-bg",     `rgb(${r},${g},${bl})`);
+  document.body.style.setProperty("--control-range-track-bg",  `rgba(${r},${g},${bl},0.92)`);
 }
 ```
 
@@ -404,8 +420,15 @@ CSS rules that have hardcoded `rgba` backgrounds (e.g. metallic `.panel`, table 
 must use `var(--panel-a)` / `var(--panel-b)` / `var(--panel-c)` instead of literal alpha values so
 the slider takes effect. The base `table` rule should use `var(--table-bg, fallback)`.
 
-**Exception — theme panel dropdown:** `.theme-panel` uses `--theme-panel-bg` (set by `applyTheme()`,
-never by `applyPanelTransparency()`). It must stay legible at all slider positions.
+**Exception — opaque control popovers:** dropdown menus, theme panels, and vertical slider popups must not
+reuse transparent `--panel`/`--panel-strong` values. Use `--control-popover-bg` for the container and
+`--control-range-track-bg` for vertical slider tracks so controls stay legible at all transparency settings.
+
+**Stacked opacity warning:** a transparent child surface over a transparent parent surface will not match
+the same child surface placed directly over the page background. The alphas compound visually, making the
+child look darker or more opaque. If two tiles must match exactly, put them on the same backing layer or make
+the parent wrapper transparent. This mattered when embedding optimiser tiles inside a results panel: matching
+the tile CSS was not enough until the parent panel background was removed.
 
 ### 3h. Background photo system
 
@@ -510,7 +533,7 @@ background: linear-gradient(90deg, transparent, rgba(0,212,184,0.3), transparent
 ```css
 .panel {
   background: var(--panel);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.08);
@@ -702,7 +725,7 @@ h1 {
 
 HTML order (within `version-badge-group`):
 ```html
-<button id="version-badge" class="version-badge" …>Version 4.0</button>
+<button id="version-badge" class="version-badge" …>Version 4.3</button>
 <button id="theme-settings-button" class="theme-settings-button" …></button>
 ```
 
@@ -734,10 +757,10 @@ Use `.open` class to show/hide (not the `hidden` attribute). Width 310 px with s
   display: none;
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
   width: 310px; max-height: 80vh; overflow-y: auto;
-  background: var(--theme-panel-bg, rgba(8,12,22,0.92)); /* fixed — ignores transparency slider */
+  background: var(--theme-panel-bg, var(--control-popover-bg, #08101c)); /* opaque */
   border: 1px solid var(--line-strong);
   border-radius: 14px; padding: 16px;
-  backdrop-filter: blur(20px);
+  backdrop-filter: none;
   box-shadow: 0 16px 48px rgba(0,0,0,0.5), 0 0 30px rgba(0,212,184,0.06);
 }
 .theme-panel.open {
@@ -746,13 +769,35 @@ Use `.open` class to show/hide (not the `hidden` attribute). Width 310 px with s
 }
 ```
 
-`--theme-panel-bg` is set once per theme in `applyTheme()` at a fixed alpha 0.92, and is **never** written by `applyPanelTransparency()` — so the panel stays legible regardless of the slider.
+`--theme-panel-bg` is set once per theme in `applyTheme()` as an opaque RGB value. It is **never** written as a translucent panel value, so the panel stays legible regardless of the transparency slider.
 
 ```js
 // In applyTheme(), after applyPanelTransparency():
 const [pr, pg, pb] = getPanelBaseRgb();
-document.body.style.setProperty("--theme-panel-bg", `rgba(${pr},${pg},${pb},0.92)`);
+document.body.style.setProperty("--theme-panel-bg", `rgb(${pr},${pg},${pb})`);
 ```
+
+### 6c. Menus and vertical slider popups
+
+All dropdown menus should share the `.io-menu-dropdown` surface and stay opaque:
+
+```css
+.io-menu-dropdown,
+.income-vslider-popup {
+  background: var(--control-popover-bg, var(--panel-strong));
+  border: 1px solid var(--line-strong);
+  backdrop-filter: none;
+}
+
+html[data-theme] input.income-vslider-input[type="range"],
+html[data-theme] input.income-vslider-input[type="range"]::-webkit-slider-runnable-track,
+html[data-theme] input.income-vslider-input[type="range"]::-moz-range-track {
+  background: var(--control-range-track-bg, var(--control-popover-bg, var(--panel-strong)));
+  background-image: none;
+}
+```
+
+Avoid `background: var(--panel)` on popovers. It will become transparent when the panel-glass slider moves.
 
 Toggle logic (JS):
 ```js

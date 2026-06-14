@@ -8,6 +8,7 @@
   --panel-a: 0.48;
   --panel-b: 0.38;
   --panel-c: 0.28;
+  --panel-blur: 18px;
   --card: rgba(12, 16, 30, 0.97);
   --card-2: rgba(8, 12, 22, 0.95);
   --card-warn: rgba(30, 14, 14, 0.96);
@@ -67,11 +68,10 @@ body::after {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(0, 212, 184, 0.28) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 85% 10%, rgba(124, 58, 237, 0.32) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 60% at 50% 100%, rgba(37, 99, 235, 0.22) 0%, transparent 60%),
-    radial-gradient(ellipse 30% 30% at 10% 80%, rgba(0, 212, 184, 0.14) 0%, transparent 50%);
+  background-image:
+    linear-gradient(rgba(99, 179, 237, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 179, 237, 0.04) 1px, transparent 1px);
+  background-size: 48px 48px;
 }
 
 .page-shell {
@@ -133,7 +133,7 @@ h1 {
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.16);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(var(--panel-blur));
 }
 
 .app-view-button {
@@ -393,7 +393,7 @@ body[data-app-view="optimiser"] .hero-actions {
 
 .panel {
   background: var(--panel);
-  backdrop-filter: blur(20px);
+  backdrop-filter: blur(var(--panel-blur));
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -1256,7 +1256,6 @@ tbody tr.is-negative td[data-key="totalPotAfterGrowth"] {
   border: 1px solid var(--line-strong);
   border-radius: 14px;
   padding: 16px;
-  backdrop-filter: blur(20px);
   box-shadow:
     0 16px 48px rgba(0, 0, 0, 0.5),
     0 0 30px rgba(0, 212, 184, 0.06);
@@ -1577,8 +1576,7 @@ html[data-theme="original"] select option {
 html[data-theme="metallic"] body::after {
   background:
     radial-gradient(ellipse 80% 60% at 20% 10%, rgba(122, 184, 216, 0.09) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 80% at 80% 90%, rgba(200, 160, 96, 0.08) 0%, transparent 60%),
-    linear-gradient(160deg, rgba(12, 16, 20, 0.62) 0%, rgba(16, 22, 30, 0.55) 100%);
+    radial-gradient(ellipse 60% 80% at 80% 90%, rgba(200, 160, 96, 0.08) 0%, transparent 60%);
 }
 
 /* Chrome-gradient title */
@@ -1722,8 +1720,7 @@ html[data-theme="metallic"] .growth-rate-grid label.growth-scenario-selected inp
 html[data-theme="bright"] body::after {
   background:
     radial-gradient(ellipse 80% 55% at 15% 5%, rgba(244, 179, 94, 0.22) 0%, transparent 58%),
-    radial-gradient(ellipse 60% 70% at 85% 90%, rgba(85, 214, 165, 0.14) 0%, transparent 55%),
-    linear-gradient(160deg, rgba(32, 20, 13, 0.52) 0%, rgba(32, 20, 13, 0.44) 100%);
+    radial-gradient(ellipse 60% 70% at 85% 90%, rgba(85, 214, 165, 0.14) 0%, transparent 55%);
 }
 
 html[data-theme="bright"] h1 {
