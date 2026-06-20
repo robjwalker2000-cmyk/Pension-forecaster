@@ -1422,9 +1422,6 @@ html[data-theme="original"] {
   --card-success-2: rgba(220, 252, 236, 0.94);
 }
 
-html[data-theme="original"] body {
-  font-family: Georgia, "Times New Roman", serif;
-}
 
 html[data-theme="original"] body::before {
   opacity: 0;
