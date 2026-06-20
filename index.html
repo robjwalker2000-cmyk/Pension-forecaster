@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="metallic">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Pension Forecaster</title>
+    <link rel="stylesheet" href="./mini-core.css" />
     <link rel="stylesheet" href="./styles.css?v=20260614-opaque-controls" />
   </head>
   <body>
@@ -13,7 +14,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 4.3</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">Version 4.4</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme"></button>
               <div id="theme-panel" class="theme-panel">
                 <p class="theme-panel-title">Theme</p>
@@ -479,6 +480,7 @@
       <p class="income-vslider-value" id="income-vslider-value">£0</p>
     </div>
 
-    <script src="./app.js?v=20260614-opaque-controls"></script>
+    <script src="./mini-core.js"></script>
+    <script src="./app.js?v=20260620-fix-sliders"></script>
   </body>
 </html>
