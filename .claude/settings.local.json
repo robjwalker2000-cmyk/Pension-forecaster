@@ -32,7 +32,12 @@
       "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster show HEAD:styles.css)",
       "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster show HEAD:app.js)",
       "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster show HEAD:optimizer-embedded.css)",
-      "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster show HEAD:AI_APP_MAP.md)"
+      "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster show HEAD:AI_APP_MAP.md)",
+      "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster log --oneline -5)",
+      "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster status)",
+      "Bash(grep -v \"^$\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('/Users/rob/.claude/settings.json'\\)\\); print\\(json.dumps\\(d.get\\('hooks',{}\\), indent=2\\)\\)\")"
     ]
   }
 }
