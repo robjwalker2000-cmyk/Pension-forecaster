@@ -48,7 +48,9 @@
       "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster show origin/main:index.html)",
       "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster add .claude/settings.local.json)",
       "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster commit -m \"Update permissions in settings.local.json\")",
-      "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster add -f .claude/settings.local.json)"
+      "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster add -f .claude/settings.local.json)",
+      "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster add index.html)",
+      "Bash(git -C /Users/rob/Documents/GitHub/Mini/Pension-forecaster commit -m \"Merge origin/main, keep v4.6\")"
     ]
   }
 }
