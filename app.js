@@ -40,6 +40,7 @@ const DEFAULT_STATE = {
   planEndMode: "years",
   limitPlanYears: true,
   scenario: 1,
+  maxGrowthRate: 0.15,
   growthLow: 0.04,
   growthMid: 0.06,
   growthHigh: 0.11,
@@ -65,6 +66,7 @@ const DEFAULT_STATE = {
   cpiRate: 0.025,
   partnerDetailsEnabled: true,
   partnerBirthYear: 1971,
+  partnerRetirementAge: 68,
   partnerWorkIncome: 15000,
   partnerWorkApplyCpi: true,
   partnerWorkCpiRate: 0.025,
@@ -232,6 +234,13 @@ function generateShareUrl() {
 const urlState = loadStateFromUrlHash();
 const shouldOpenBasicSetupOnLoad = !urlState && !hasSavedState();
 let state = urlState || loadState();
+
+// ?maxGrowth=N (N in percent, e.g. ?maxGrowth=25) overrides the growth cap
+const _maxGrowthParam = new URLSearchParams(window.location.search).get('maxGrowth');
+if (_maxGrowthParam !== null && !Number.isNaN(Number(_maxGrowthParam))) {
+  state = normaliseState({ ...state, maxGrowthRate: Number(_maxGrowthParam) / 100 });
+  history.replaceState(null, '', window.location.pathname + window.location.hash);
+}
 let activeAppView = "forecaster";
 let optimiserFrameReady = false;
 let deferredChartRender = null;
@@ -309,6 +318,14 @@ function normaliseState(source, changedKey = null) {
   } else {
     next.planYears = planYearsValue;
     next.planToAge = next.retirementAge + next.planYears - 1;
+  }
+
+  next.maxGrowthRate = Math.max(0.01, Math.min(0.50, Number(next.maxGrowthRate) || 0.15));
+
+  if (!Number.isFinite(Number(next.partnerRetirementAge))) {
+    next.partnerRetirementAge = 68;
+  } else {
+    next.partnerRetirementAge = Math.round(Number(next.partnerRetirementAge));
   }
 
   next.currentCrystallisedPot = Math.max(0, Math.min(Number(next.currentCrystallisedPot) || 0, Number(next.currentPot) || 0));
@@ -976,7 +993,7 @@ function calculateProjection(source) {
     const totalIncomeRequired = incomeRequired + carCostViaIncome + exceptionalExpense;
 
     const partnerWorkIncome =
-      partnerDetailsEnabled && partnerAge < 68
+      partnerDetailsEnabled && partnerAge < source.partnerRetirementAge
         ? compoundAnnual(source.partnerWorkIncome, source.partnerWorkCpiRate, yearIndex, source.partnerWorkApplyCpi)
         : 0;
     const partnerStatePension =
@@ -3832,7 +3849,9 @@ function exportFormulaWorkbookToExcel() {
     ["Retirement age", state.retirementAge],
     ["Plan to age", state.planToAge],
     ["Partner details enabled", state.partnerDetailsEnabled !== false ? 1 : 0],
+    ["Max growth cap", state.maxGrowthRate],
     ["Partner birth year", state.partnerBirthYear],
+    ["Partner retirement age", state.partnerRetirementAge],
     ["Income required", state.incomeRequired],
     ["Income after year 10", state.incomeAfterYear10],
     ["CPI rate", state.cpiRate],
@@ -3924,7 +3943,7 @@ function exportFormulaWorkbookToExcel() {
       incomeRequired: `=LET(yearNo,${cell("yearIndex", rowNumber)},incomeBase,IF(yearNo<=10,${assumptionRef["Income required"]},${assumptionRef["Income after year 10"]}),cpiYears,IF(${assumptionRef["Income values relative to today"]}=1,${assumptionRef["Retirement year"]}-${assumptionRef["Current year"]}+yearNo-1,IF(yearNo<=10,yearNo-1,yearNo-11)),IF(${assumptionRef["Apply CPI to income"]}=1,incomeBase*POWER(1+${assumptionRef["CPI rate"]}/12,12*cpiYears),incomeBase))`,
       carCost: `=IF(AND(${assumptionRef["Car cost"]}>0,${cell("yearIndex", rowNumber)}>=${assumptionRef["Car start year"]},MOD(${cell("yearIndex", rowNumber)}-${assumptionRef["Car start year"]},${assumptionRef["Car frequency years"]})=0),${assumptionRef["Car cost"]},0)`,
       totalIncomeRequired: `=${cell("incomeRequired", rowNumber)}+${cell("carCost", rowNumber)}`,
-      partnerIncome: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}<68,IF(${assumptionRef["Apply CPI to partner work"]}=1,${assumptionRef["Partner work income"]}*POWER(1+${assumptionRef["Partner work CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner work income"]}),0),0)`,
+      partnerIncome: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}<${assumptionRef["Partner retirement age"]},IF(${assumptionRef["Apply CPI to partner work"]}=1,${assumptionRef["Partner work income"]}*POWER(1+${assumptionRef["Partner work CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner work income"]}),0),0)`,
       partnerStatePension: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}>67,IF(${assumptionRef["Apply CPI to state/work pensions"]}=1,${assumptionRef["Partner state pension"]}*POWER(1+${assumptionRef["State/work pension CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner state pension"]}),0),0)`,
       partnerWorkPension: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}>67,IF(${assumptionRef["Apply CPI to state/work pensions"]}=1,${assumptionRef["Partner work pension"]}*POWER(1+${assumptionRef["State/work pension CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner work pension"]}),0),0)`,
       ownStatePension: `=IF(${cell("age", rowNumber)}>67,${assumptionRef["Own state pension"]}*POWER(1+${assumptionRef["Own state pension growth"]}/12,12*${cell("yearIndex", rowNumber)}),0)`,
@@ -4495,6 +4514,7 @@ const INCOME_SLIDER_CONFIG = {
   // State & work pensions (currency)
   ownStatePension:      { label: "Own state pension",       min: 12000, max: 16000,  step: 100,   format: "currency" },
   partnerStatePension:  { label: "Partner state pension",   min: 12000, max: 16000,  step: 100,   format: "currency" },
+  partnerRetirementAge: { label: "Partner retirement age", min: 50, max: 75, step: 1, format: "number", unit: "yrs" },
   partnerWorkIncome:    { label: "Partner work income",     min: 0,     max: 30000,  step: 500,   format: "currency" },
   partnerWorkPension:   { label: "Partner work pension",    min: 0,     max: 30000,  step: 500,   format: "currency" },
   // CPI / inflation rates (0–10%, stored as decimal)
@@ -4504,19 +4524,19 @@ const INCOME_SLIDER_CONFIG = {
   ownStatePensionGrowthRate:  { label: "State pension growth",      min: 0, max: 0.10, step: 0.005, format: "percent" },
   taxAllowanceCpiRate:        { label: "Tax allowance CPI",         min: 0, max: 0.10, step: 0.005, format: "percent" },
   taxBandCpiRate:             { label: "Tax bands CPI",             min: 0, max: 0.10, step: 0.005, format: "percent" },
-  // Growth rates (0–15%, stored as decimal)
-  growthLow:                  { label: "Low pre-retirement",        min: 0, max: 0.15, step: 0.005, format: "percent" },
-  postRetirementGrowthLow:    { label: "Low post-retirement",       min: 0, max: 0.15, step: 0.005, format: "percent" },
-  growthMid:                  { label: "Mid pre-retirement",        min: 0, max: 0.15, step: 0.005, format: "percent" },
-  postRetirementGrowthMid:    { label: "Mid post-retirement",       min: 0, max: 0.15, step: 0.005, format: "percent" },
-  growthHigh:                 { label: "High pre-retirement",       min: 0, max: 0.15, step: 0.005, format: "percent" },
-  postRetirementGrowthHigh:   { label: "High post-retirement",      min: 0, max: 0.15, step: 0.005, format: "percent" },
-  definedBenefitGrowthRate:   { label: "DB growth rate",            min: 0, max: 0.15, step: 0.005, format: "percent" },
-  // Savings growth & interest rates (0–15%, stored as decimal)
-  personalBankInterestRate:       { label: "Bank interest",         min: 0, max: 0.15, step: 0.005, format: "percent" },
-  personalIsaGrowthRate:          { label: "ISA growth",            min: 0, max: 0.15, step: 0.005, format: "percent" },
-  personalPremiumBondsGrowthRate: { label: "Premium Bonds growth",  min: 0, max: 0.15, step: 0.005, format: "percent" },
-  partnerSavingsGrowthRate:       { label: "Partner savings growth", min: 0, max: 0.15, step: 0.005, format: "percent" },
+  // Growth rates (capped by maxGrowthRate, stored as decimal)
+  growthLow:                  { label: "Low pre-retirement",        min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  postRetirementGrowthLow:    { label: "Low post-retirement",       min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  growthMid:                  { label: "Mid pre-retirement",        min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  postRetirementGrowthMid:    { label: "Mid post-retirement",       min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  growthHigh:                 { label: "High pre-retirement",       min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  postRetirementGrowthHigh:   { label: "High post-retirement",      min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  definedBenefitGrowthRate:   { label: "DB growth rate",            min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  // Savings growth & interest rates (capped by maxGrowthRate, stored as decimal)
+  personalBankInterestRate:       { label: "Bank interest",         min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  personalIsaGrowthRate:          { label: "ISA growth",            min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  personalPremiumBondsGrowthRate: { label: "Premium Bonds growth",  min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  partnerSavingsGrowthRate:       { label: "Partner savings growth", min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
 };
 
 function positionIncomeSlider(btn) {

@@ -14,7 +14,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">v4.8</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">v4.9</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme"></button>
               <div id="theme-panel" class="theme-panel">
                 <p class="theme-panel-title">Theme</p>
@@ -192,6 +192,7 @@
               </div>
               <label class="toggle"><span>Apply pot growth</span><input data-field="applyPotGrowth" type="checkbox" /></label>
               <label class="toggle"><span>Taper growth to retirement</span><input data-field="taperPreRetirementGrowth" type="checkbox" /></label>
+              <label><span>Max growth cap</span><input data-field="maxGrowthRate" data-format="percent-1" type="number" step="0.1" /></label>
             </div>
           </section>
 
@@ -240,6 +241,7 @@
               <label class="toggle"><span>Use partner details</span><input data-field="partnerDetailsEnabled" type="checkbox" /></label>
               <div id="partner-detail-fields" class="optional-field-group">
                 <label><span>Partner year of birth</span><input data-field="partnerBirthYear" type="number" step="1" /></label>
+                <label class="income-slider-field"><span>Partner retirement age</span><input data-field="partnerRetirementAge" type="number" step="1" /><button class="income-popup-btn" type="button" data-for="partnerRetirementAge" aria-label="Quick slider for partner retirement age">↕</button></label>
                 <label class="income-slider-field"><span>Partner work income</span><input data-field="partnerWorkIncome" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="partnerWorkIncome" aria-label="Quick slider for partner work income">↕</button></label>
                 <label class="income-slider-field"><span>Partner work pension</span><input data-field="partnerWorkPension" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="partnerWorkPension" aria-label="Quick slider for partner work pension">↕</button></label>
                 <label class="income-slider-field"><span>Partner state pension</span><input data-field="partnerStatePension" type="number" step="1000" /><button class="income-popup-btn" type="button" data-for="partnerStatePension" aria-label="Quick slider for partner state pension">↕</button></label>
