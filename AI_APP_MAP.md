@@ -2,7 +2,7 @@
 
 ## 1. What this app does
 
-Pension Forecaster is a standalone browser app for modelling UK retirement cashflow, pension drawdown, tax, TFLS, savings, partner income, year-by-year pot depletion, and a read-only retirement optimiser view. It is for a user who wants to test retirement scenarios interactively without working directly in the original spreadsheet.
+Pension Forecaster is a standalone browser app for modelling UK retirement cashflow, pension drawdown, tax, TFLS, savings, partner income (including a separate partner DC pension pot with independent growth scenarios and demand-based proportional drawdown), year-by-year pot depletion, and a read-only retirement optimiser view. It is for a user who wants to test retirement scenarios interactively without working directly in the original spreadsheet.
 
 ## 2. Current status
 
@@ -21,6 +21,7 @@ Working now:
 - Clicking the version badge briefly shows the last-modified date then reverts to the version string.
 - Tax/drawdown logic includes UK income tax bands, personal allowance taper, personal savings allowance, TFLS, lump sum allowance, regular drawdown, maximise drawdown, and 25/75 pairing options.
 - Basic setup popup supports first-run/reset onboarding.
+- **Partner DC pension** (fully implemented): independent growth scenario selector (Low/Mid/High × pre/post-retirement), pot grows at partner's own rates until partner's own retirement year, then switches to demand-based proportional drawdown. When both DC pots are drawing simultaneously, each draws a share proportional to its current balance. Partner retirement year chart marker aligns with the pre-drawdown peak balance. See §7 for full calculation rules.
 
 Unfinished or areas to treat carefully:
 - The model is a browser-friendly rebuild of spreadsheet logic, not a cell-for-cell Excel clone.
@@ -85,7 +86,8 @@ Key state groups:
 - Pension pot: `currentPot`, `currentCrystallisedPot`, `lumpSumAllowanceUsed`, growth scenario rates, post-retirement growth rates, `applyPotGrowth`, tapering options.
 - Spending: `incomeRequired`, `incomeAfterYear10`, `billsAnnual`, `holidaysAnnual`, `carCost`, car frequency/start year, CPI toggles.
 - Savings: bank, ISA, Premium Bonds, partner savings, interest/growth rates, savings-use toggles.
-- Partner details: partner birth year, work income, state pension, work pension, CPI settings.
+- Partner details: `partnerDetailsEnabled`, `partnerBirthYear`, `partnerRetirementAge`, work income, state pension, CPI settings.
+- Partner DC pension: `partnerPensionEnabled`, `partnerCurrentPot`, `partnerCurrentCrystallisedPot`, `partnerLumpSumAllowanceUsed`. Growth scenario: `partnerScenario` (1=Low, 2=Mid, 3=High), pre-retirement rates `partnerGrowthLow/Mid/High`, post-retirement rates `partnerPostRetirementGrowthLow/Mid/High`. Partner DB: `partnerDefinedBenefitEnabled`, `partnerDefinedBenefitIncome`, `partnerDefinedBenefitLumpSum`.
 - Tax: own state pension, state pension growth, tax allowance CPI, tax band CPI rate/frequency/start year.
 - Drawdown: regular drawdown, tax optimisation mode, TFLS by 75, maximise basic-rate drawdown, force 25/75 pairing, year-one TFLS settings.
 - Events: user-added exceptional income/expense items with amount, timing, taxable flag, and routing.
@@ -111,6 +113,36 @@ Projection output is created by `calculateProjection(source)` and returns derive
 - Savings are allocated in defined order where relevant, with ISA and Premium Bonds treated as tax-free growth/prizes and bank interest subject to PSA/tax.
 - Import should preserve known fields and tolerate older saved/exported formats where practical.
 - Export plan JSON should remain backward-compatible for downstream tools; do not rename or remove existing fields without user agreement.
+
+### Partner DC pension rules (implemented)
+
+`partnerRetirementYear = partnerBirthYear + partnerRetirementAge` is computed inside `calculateProjection`. It is independent of the personal retirement year.
+
+**Growth phase**: The partner pot uses `growthRateForPartnerScenario(source, phase)` — a parallel helper to the personal `growthRateForScenario`. Pre-retirement it grows at `partnerGrowthLow/Mid/High` (selected by `partnerScenario`); post-retirement it grows at `partnerPostRetirementGrowthLow/Mid/High`.
+
+**How growth is split across phases inside `calculateProjection`**:
+- `partnerRetirementPot` is computed at the *personal* retirement year (i.e. `yearsToRetirement` elapsed from today) using the partner’s own rates.
+- The post-retirement loop initialises `partnerPotBalance = partnerRetirementPot` and keeps growing it at `partnerPreRetirementGrowthRate` (the `else` branch) for each year until `calendarYear >= partnerRetirementYear`.
+- This avoids the double-growth bug: never compute the partner pot all the way to the partner retirement year in one shot and then grow it again in the loop.
+
+**Drawdown phase**: `partnerHasRetired = partnerPensionEnabled && calendarYear >= partnerRetirementYear`. Nothing is drawn from the partner pot before this year.
+
+**Demand-based, proportional drawdown**: When both DC pots are in drawdown, the income shortfall is split proportionally to relative pot sizes rather than one pot covering everything first.
+
+```
+effectivePersonalPot = uncrystallisedPot + crystallisedPot   // personal opening balance
+combinedDCPots = effectivePersonalPot + (partnerHasRetired ? partnerPotBalance : 0)
+partnerDCFraction = partnerPotBalance / combinedDCPots        // 0 if partner not yet retired
+partnerPotDrawdown = min(partnerPotBalance, totalShortfallExcDCPots × partnerDCFraction)
+// personal pot covers remaining shortfall via existing pensionNeededGross path
+```
+
+- Largest pot absorbs the most burden proportionally each year.
+- When the personal pot is depleted: fraction = 1, partner covers 100 %.
+- When the partner pot is exhausted: draws nothing, personal covers 100 %.
+- `totalShortfallExcDCPots = max(0, totalIncomeRequired − baseIncomeExcDCPots − definedBenefitLumpSum)` where `baseIncomeExcDCPots` includes partner work income, both state pensions, DB incomes, and exceptional income.
+
+**Chart alignment**: For the partner retirement year the chart shows the *pre-drawdown* (opening) balance (`partnerPotPreDrawdown`) so the "Partner retires" vertical marker aligns with the visual peak, not the post-drawdown dip.
 
 ## 8. Design/UI rules
 
@@ -195,7 +227,7 @@ Deploy `index.html`, `styles.css`, `app.js`, `optimizer-embedded.html`, `optimiz
 
 ## 12. AI working instructions
 
-- Read this file first.
+- Read this file first, then read §7 carefully before touching any calculation code.
 - Check `git status --short` before editing.
 - Do not rewrite working code unnecessarily.
 - Preserve existing UI style and theme system.
@@ -204,8 +236,24 @@ Deploy `index.html`, `styles.css`, `app.js`, `optimizer-embedded.html`, `optimiz
 - Explain assumptions when modelling pension/tax behaviour.
 - Keep app calculations and formula workbook exports aligned when changing projection logic.
 - Use `rg` for search.
-- Use `apply_patch` for manual file edits.
 - Run `node --check app.js` after JavaScript edits.
 - For UI changes, smoke test in a browser or clearly state if it was not done.
 - Do not revert unrelated local changes.
 - Explain key helpers and structure when adding non-trivial logic.
+
+### Key helpers in `app.js` to know before editing
+
+| Helper | Purpose |
+|---|---|
+| `calculateProjection(source)` | Main engine. Returns `{ rows, partnerRetirementYear, … }`. Rows use `calendarYear`, not `year`. |
+| `growthRateForScenario(source, phase)` | Personal DC growth rate for `"pre"` or `"post"` retirement. |
+| `growthRateForPartnerScenario(source, phase)` | Partner DC growth rate, parallel to above. Uses `partnerScenario` + `partnerGrowthLow/Mid/High` / `partnerPostRetirement*`. |
+| `taperedPreRetirementGrowth(base, preRate, postRate, years, enabled)` | Compounds a pot over `years` with optional taper from pre to post rate. Used to project personal and partner pots to personal retirement year. |
+| `normaliseState()` | Clamp, default, and migrate all state fields. Must be updated when new state fields are added. |
+
+### Partner DC — things that are easy to break
+
+- `partnerRetirementPot` is grown to **personal** retirement year (`yearsToRetirement`) not partner's. The post-retirement loop grows it further to the partner retirement year in the `else` branch (`!partnerHasRetired`). Do not change both calculations without understanding this split.
+- `partnerPotBalance` is updated at the **end** of each loop iteration (after the row push). At the top of the loop it holds the opening balance for the current year.
+- `partnerPotForChart = calendarYear === partnerRetirementYear ? partnerPotPreDrawdown : partnerPotBalance` — the chart shows the pre-drawdown value on the partner's retirement year to align the visual peak with the marker. Do not remove this.
+- The proportional drawdown fraction uses `uncrystallisedPot + crystallisedPot` as the personal pot opening balance. These are assigned at lines 1541–1542 and always reflect the start-of-year balance at the top of the loop.
