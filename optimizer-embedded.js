@@ -568,7 +568,8 @@ function getForecasterPlan(parsed) {
     name: getImportedPlanName(parsed),
     rows: parsed.projection.rows,
     preRetirementRows: parsed.projection.preRetirementRows || [],
-    retirementYear: parsed.projection.rows[0]?.calendarYear || null,
+    retirementYear: parsed.retirementYear || parsed.projection.rows[0]?.calendarYear || null,
+    partnerRetirementYear: parsed.partnerRetirementYear ?? null,
     selectedIndex: 0,
   };
 }
@@ -1554,18 +1555,21 @@ function drawChartTooltip(ctx, { x: hx, y: ty, lines, width, padLeft, padRight, 
 }
 
 // ── Projection Trend: stacked area chart ─────────────────────────────────
-function renderStackedSavingsChartCanvas({ canvas, rows, preRetirementRows = [], retirementYear = null, showPreRetirement = false, hoverX = null }) {
+function renderStackedSavingsChartCanvas({ canvas, rows, preRetirementRows = [], retirementYear = null, partnerRetirementYear = null, showPreRetirement = false, hoverX = null }) {
   if (!canvas || !rows?.length) return;
   const layers = [
-    { key: "totalPotAfterGrowth", label: "Pension pot",   color: "#10b981", fill: "rgba(16,185,129,0.72)" },
-    { key: "premiumBondsLeft",    label: "Premium Bonds", color: "#f59e0b", fill: "rgba(245,158,11,0.70)" },
-    { key: "isaSavingsLeft",      label: "ISA",           color: "#3b82f6", fill: "rgba(59,130,246,0.70)" },
-    { key: "bankSavingsLeft",     label: "Bank savings",  color: "#a855f7", fill: "rgba(168,85,247,0.70)" },
+    { key: "totalPotAfterGrowth", label: "My pension pot", color: "#10b981", fill: "rgba(16,185,129,0.72)" },
+    { key: "premiumBondsLeft",    label: "Premium Bonds",  color: "#f59e0b", fill: "rgba(245,158,11,0.70)" },
+    { key: "isaSavingsLeft",      label: "ISA",            color: "#3b82f6", fill: "rgba(59,130,246,0.70)" },
+    { key: "bankSavingsLeft",     label: "Bank savings",   color: "#a855f7", fill: "rgba(168,85,247,0.70)" },
   ];
   const allRows = showPreRetirement && preRetirementRows.length
     ? [...preRetirementRows, ...rows]
     : rows;
   const retirementSplitIndex = showPreRetirement ? preRetirementRows.length : -1;
+  if (allRows.some((r) => (r.partnerPotAfterGrowth || 0) > 0.5)) {
+    layers.splice(1, 0, { key: "partnerPotAfterGrowth", label: "Partner pot", color: "#06b6d4", fill: "rgba(6,182,212,0.70)" });
+  }
   if (allRows.some((r) => (r.partnerSavingsLeft || 0) > 0.5)) {
     layers.push({ key: "partnerSavingsLeft", label: "Partner savings", color: "#f43f5e", fill: "rgba(244,63,94,0.70)" });
   }
@@ -1657,6 +1661,30 @@ function renderStackedSavingsChartCanvas({ canvas, rows, preRetirementRows = [],
     ctx.restore();
   }
 
+  // Partner retirement marker
+  if (showPreRetirement && partnerRetirementYear) {
+    const pIdx = allRows.findIndex((r) => r.calendarYear >= partnerRetirementYear);
+    if (pIdx > 0 && pIdx < n) {
+      const px = xFor(pIdx);
+      ctx.save();
+      ctx.strokeStyle = "rgba(6,182,212,0.85)"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(px, pad.top); ctx.lineTo(px, pad.top + plotHeight); ctx.stroke();
+      ctx.setLineDash([]);
+      const pBadge = `Partner retires ${partnerRetirementYear}`;
+      ctx.font = "bold 11px Inter, system-ui, sans-serif";
+      const pbw = ctx.measureText(pBadge).width + 16, pbh = 20;
+      const pbx = px - pbw / 2, pby = pad.top + 14;
+      ctx.fillStyle = "rgba(6,182,212,0.18)";
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(pbx, pby, pbw, pbh, 6); else ctx.rect(pbx, pby, pbw, pbh);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(6,182,212,0.7)"; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = "rgba(6,182,212,1)"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(pBadge, px, pby + pbh / 2);
+      ctx.restore();
+    }
+  }
+
   const targetLabels = Math.max(4, Math.min(8, Math.floor(plotWidth / 90)));
   const yearStep = Math.max(1, Math.ceil((n - 1) / Math.max(1, targetLabels - 1)));
   const labelIdxs = [];
@@ -1724,16 +1752,18 @@ function renderStackedIncomeChartCanvas({ canvas, rows: rawRows, hoverX = null }
     _partnerSavingsUsed: Number(row.partnerSavingsUsed) || 0,
   }));
   const incomeSources = [
-    { key: "partnerIncome",         label: "Partner work",             color: "#2563eb" },
-    { key: "partnerStatePension",   label: "Partner state pension",    color: "#16a34a" },
-    { key: "partnerWorkPension",    label: "Partner work pension",     color: "#65a30d" },
-    { key: "ownStatePension",       label: "My state pension",         color: "#0f766e" },
-    { key: "definedBenefitIncome",  label: "My DB pension",            color: "#0891b2" },
-    { key: "definedBenefitLumpSum", label: "DB lump sum",              color: "#06b6d4" },
-    { key: "taxFreeCash",           label: "TFLS",                     color: "#f59e0b" },
-    { key: "grossPensionWithdrawal",label: "Taxable pension withdrawn", color: "#7c3aed" },
-    { key: "_mySavingsUsed",        label: "My savings",               color: "#db2777" },
-    { key: "_partnerSavingsUsed",   label: "Partner savings",          color: "#f472b6" },
+    { key: "partnerIncome",                label: "Partner work",             color: "#2563eb" },
+    { key: "partnerStatePension",          label: "Partner state pension",    color: "#16a34a" },
+    { key: "ownStatePension",              label: "My state pension",         color: "#0f766e" },
+    { key: "definedBenefitIncome",         label: "My DB pension",            color: "#0891b2" },
+    { key: "definedBenefitLumpSum",        label: "My DB lump sum",           color: "#06b6d4" },
+    { key: "partnerDefinedBenefitIncome",  label: "Partner DB pension",       color: "#f97316" },
+    { key: "partnerDefinedBenefitLumpSum", label: "Partner DB lump sum",      color: "#fdba74" },
+    { key: "partnerPotDrawdown",           label: "Partner DC pension",       color: "#22d3ee" },
+    { key: "taxFreeCash",                  label: "TFLS",                     color: "#f59e0b" },
+    { key: "grossPensionWithdrawal",       label: "Taxable pension withdrawn", color: "#7c3aed" },
+    { key: "_mySavingsUsed",              label: "My savings",               color: "#db2777" },
+    { key: "_partnerSavingsUsed",         label: "Partner savings",          color: "#f472b6" },
   ];
   const needSeries = { key: "totalIncomeRequired", label: "Income needed", color: "#b45309", dash: [7, 5] };
   const stackedTotals = rows.map((row) =>
@@ -2108,6 +2138,7 @@ function renderPlanCharts(hoverSavingsX = null, hoverIncomeX = null, hoverSpendi
       rows,
       preRetirementRows: preRetRows,
       retirementYear: importedPlan.retirementYear,
+      partnerRetirementYear: importedPlan.partnerRetirementYear ?? null,
       showPreRetirement: planChartState.showPreRetirement,
       hoverX: hoverSavingsX ?? indexToHoverX(canvas, savingsIdx, savingsN, true),
     });

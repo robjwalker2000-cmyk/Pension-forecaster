@@ -20,6 +20,7 @@ const DEFAULT_STATE = {
   currentPot: 100000,
   currentCrystallisedPot: 0,
   lumpSumAllowanceUsed: 0,
+  personalMonthlyContribution: 0,
   personalSavings: 0,
   useSavings: true,
   personalSavingsGrowthRate: 0.03,
@@ -70,14 +71,12 @@ const DEFAULT_STATE = {
   partnerWorkIncome: 15000,
   partnerWorkApplyCpi: true,
   partnerWorkCpiRate: 0.025,
-  partnerStatePension: 13000,
-  partnerWorkPension: 5000,
   partnerSavings: 0,
   partnerSavingsGrowthRate: 0.03,
-  statePensionApplyCpi: true,
-  statePensionCpiRate: 0.02,
-  ownStatePension: 13000,
-  ownStatePensionGrowthRate: 0.02,
+  statePension: 11502,
+  statePensionGrowthRate: 0.025,
+  myStatePensionPct: 100,
+  partnerStatePensionPct: 100,
   applyTaxAllowanceCpi: false,
   taxAllowanceCpiRate: 0.02,
   taxBandCpiRate: 0,
@@ -93,6 +92,25 @@ const DEFAULT_STATE = {
   regularDrawdownAmount: 12000,
   regularDrawdownYears: 15,
   specialEvents: [],
+  myPensionEnabled: true,
+  partnerPensionEnabled: false,
+  partnerScenario: 1,
+  partnerGrowthLow: 0.04,
+  partnerGrowthMid: 0.06,
+  partnerGrowthHigh: 0.11,
+  partnerPostRetirementGrowthLow: 0.04,
+  partnerPostRetirementGrowthMid: 0.06,
+  partnerPostRetirementGrowthHigh: 0.04,
+  partnerCurrentPot: 0,
+  partnerCrystallisedPot: 0,
+  partnerLumpSumAllowanceUsed: 0,
+  partnerMonthlyContribution: 0,
+  partnerDBEnabled: false,
+  partnerDefinedBenefitStartYear: CURRENT_YEAR + 10,
+  partnerDefinedBenefitInitialLumpSum: 0,
+  partnerDefinedBenefitInitialAnnualAmount: 0,
+  partnerDefinedBenefitMaxYears: 10,
+  partnerDefinedBenefitGrowthRate: 0.02,
 };
 
 const CURRENCY = new Intl.NumberFormat("en-GB", {
@@ -137,6 +155,7 @@ const UK_TAX_RULES = {
 const inputs = Array.from(document.querySelectorAll("[data-field]"));
 const LINKED_PLAN_FIELDS = new Set(["planYears", "planToAge"]);
 const growthScenarioFields = Array.from(document.querySelectorAll("[data-growth-scenario]"));
+const partnerGrowthScenarioFields = Array.from(document.querySelectorAll("[data-partner-growth-scenario]"));
 const summaryGrid = document.getElementById("summary-grid");
 const summaryTemplate = document.getElementById("summary-card-template");
 const projectionHead = document.getElementById("projection-head");
@@ -144,13 +163,15 @@ const projectionBody = document.getElementById("projection-body");
 const definedBenefitFields = document.getElementById("defined-benefit-fields");
 const savingsFields = document.getElementById("savings-fields");
 const partnerDetailFields = document.getElementById("partner-detail-fields");
+const myPensionFields = document.getElementById("my-pension-fields");
+const partnerPensionFields = document.getElementById("partner-pension-fields");
+const partnerDbFields = document.getElementById("partner-db-fields");
 const regularDrawdownFields = document.getElementById("regular-drawdown-fields");
 const yearOneTflsFields = document.getElementById("year-one-tfls-fields");
 const potChartCanvas = document.getElementById("pot-chart");
 const incomeChartCanvas = document.getElementById("income-chart");
 const potChartWrap = document.getElementById("pot-chart-wrap");
 const incomeChartWrap = document.getElementById("income-chart-wrap");
-const chartEmptyMessage = document.getElementById("chart-empty-message");
 const chartCaption = document.getElementById("chart-caption");
 const tableCaption = document.getElementById("table-caption");
 const versionBadge = document.getElementById("version-badge");
@@ -171,6 +192,9 @@ const tableViewOptions  = tableViewDropdown.querySelectorAll(".table-view-option
 const scenarioButton        = document.getElementById("scenario-button");
 const scenarioDropdown      = document.getElementById("scenario-dropdown");
 const scenarioOptions       = scenarioDropdown.querySelectorAll(".scenario-option");
+const partnerScenarioButton  = document.getElementById("partner-scenario-button");
+const partnerScenarioDropdown = document.getElementById("partner-scenario-dropdown");
+const partnerScenarioOptions  = partnerScenarioDropdown.querySelectorAll(".partner-scenario-option");
 const savingsTaxOptimButton  = document.getElementById("savings-tax-optim-button");
 const savingsTaxOptimDropdown = document.getElementById("savings-tax-optim-dropdown");
 const savingsTaxOptimOptions  = savingsTaxOptimDropdown.querySelectorAll(".savings-tax-optim-option");
@@ -190,11 +214,10 @@ const applyCustomFieldsButton = document.getElementById("apply-custom-fields-but
 const basicSetupDialog = document.getElementById("basic-setup-dialog");
 const closeBasicSetupButton = document.getElementById("close-basic-setup-button");
 const applyBasicSetupButton = document.getElementById("apply-basic-setup-button");
-const showPotChartToggle = document.getElementById("show-pot-chart-toggle");
 const savingsPreRetirementToggle = document.getElementById("savings-preretirement-toggle");
-const showIncomeChartToggle = document.getElementById("show-income-chart-toggle");
-const showSpendingChartToggle = document.getElementById("show-spending-chart-toggle");
-const spendingChartSection = document.getElementById("spending-chart-section");
+const savingsViewPersonalBtn = document.getElementById("savings-view-personal");
+const savingsViewPartnerBtn  = document.getElementById("savings-view-partner");
+const savingsViewCombinedBtn = document.getElementById("savings-view-combined");
 const spendingChartCanvas = document.getElementById("spending-chart");
 const spendingChartRealToggle = document.getElementById("spending-chart-real-toggle");
 const spendingChartMonthlyToggle = document.getElementById("spending-chart-monthly-toggle");
@@ -204,7 +227,6 @@ const spendingChartCaption = document.getElementById("spending-chart-caption");
 const layout = document.getElementById("layout");
 const tablePanel = document.querySelector(".table-panel");
 const tableWrap = document.getElementById("table-wrap");
-const showTableToggle = document.getElementById("show-table-toggle");
 
 function loadStateFromUrlHash() {
   try {
@@ -330,6 +352,7 @@ function normaliseState(source, changedKey = null) {
 
   next.currentCrystallisedPot = Math.max(0, Math.min(Number(next.currentCrystallisedPot) || 0, Number(next.currentPot) || 0));
   next.lumpSumAllowanceUsed = Math.max(0, Number(next.lumpSumAllowanceUsed) || 0);
+  next.personalMonthlyContribution = Math.max(0, Number(next.personalMonthlyContribution) || 0);
   if (!Number.isFinite(Number(source.personalBankSavings)) && !Number.isFinite(Number(source.personalIsaSavings))) {
     next.personalBankSavings = Math.max(0, Number(source.personalSavings) || 0);
     next.personalIsaSavings = 0;
@@ -346,6 +369,25 @@ function normaliseState(source, changedKey = null) {
   next.taxBandCpiStartYear = Math.round(Number(next.taxBandCpiStartYear) || next.currentYear);
   next.yearOneTflsMode = next.yearOneTflsMode === "defined" ? "defined" : "full";
   next.yearOneTflsAmount = Math.max(0, Number(next.yearOneTflsAmount) || 0);
+  // Migrate old per-person state pension fields to shared state pension model
+  if (next.statePension === undefined) next.statePension = Math.max(0, Number(next.ownStatePension) || 11502);
+  else next.statePension = Math.max(0, Number(next.statePension) || 11502);
+  if (next.statePensionGrowthRate === undefined) next.statePensionGrowthRate = Math.max(0, Number(next.ownStatePensionGrowthRate) || Number(next.statePensionCpiRate) || 0.025);
+  else next.statePensionGrowthRate = Math.max(0, Number(next.statePensionGrowthRate) || 0.025);
+  next.myStatePensionPct = Math.max(0, Math.min(100, Number(next.myStatePensionPct) || 100));
+  next.partnerStatePensionPct = Math.max(0, Math.min(100, Number(next.partnerStatePensionPct) || 100));
+  if (next.myPensionEnabled === undefined) next.myPensionEnabled = true;
+  if (next.partnerPensionEnabled === undefined) next.partnerPensionEnabled = false;
+  next.partnerCurrentPot = Math.max(0, Number(next.partnerCurrentPot) || 0);
+  next.partnerCrystallisedPot = Math.max(0, Math.min(Number(next.partnerCrystallisedPot) || 0, next.partnerCurrentPot));
+  next.partnerLumpSumAllowanceUsed = Math.max(0, Number(next.partnerLumpSumAllowanceUsed) || 0);
+  next.partnerMonthlyContribution = Math.max(0, Number(next.partnerMonthlyContribution) || 0);
+  if (next.partnerDBEnabled === undefined) next.partnerDBEnabled = false;
+  next.partnerDefinedBenefitStartYear = Math.round(Number(next.partnerDefinedBenefitStartYear) || (CURRENT_YEAR + 10));
+  next.partnerDefinedBenefitInitialLumpSum = Math.max(0, Number(next.partnerDefinedBenefitInitialLumpSum) || 0);
+  next.partnerDefinedBenefitInitialAnnualAmount = Math.max(0, Number(next.partnerDefinedBenefitInitialAnnualAmount) || 0);
+  next.partnerDefinedBenefitMaxYears = Math.max(1, Math.round(Number(next.partnerDefinedBenefitMaxYears) || 10));
+  next.partnerDefinedBenefitGrowthRate = Math.max(0, Number(next.partnerDefinedBenefitGrowthRate) || 0.02);
   next.specialEvents = Array.isArray(next.specialEvents) ? next.specialEvents.map((ev) => ({
     id: ev.id || (`evt_${Date.now()}_${Math.random()}`),
     yearType: ["relative", "absolute"].includes(ev.yearType) ? ev.yearType : "relative",
@@ -381,8 +423,10 @@ function loadUiState() {
       spendingChartMonthly: Boolean(saved.spendingChartMonthly),
       spendingChartMode: ["full","freeOnly","taxBreakdown"].includes(saved.spendingChartMode) ? saved.spendingChartMode : (saved.spendingChartFreeOnly ? "freeOnly" : "full"),
       savingsShowPreRetirement: Boolean(saved.savingsShowPreRetirement),
+      savingsView: ["personal","partner","combined"].includes(saved.savingsView) ? saved.savingsView : "combined",
       tableExpanded: Boolean(saved.tableExpanded),
       customTableFields: Array.isArray(saved.customTableFields) ? saved.customTableFields : [],
+      collapsedPanels: (saved.collapsedPanels && typeof saved.collapsedPanels === "object" && !Array.isArray(saved.collapsedPanels)) ? saved.collapsedPanels : {},
     };
   } catch {
     return {
@@ -400,8 +444,10 @@ function loadUiState() {
       spendingChartMonthly: false,
       spendingChartMode: "full",
       savingsShowPreRetirement: false,
+      savingsView: "combined",
       tableExpanded: false,
       customTableFields: [],
+      collapsedPanels: {},
     };
   }
 }
@@ -419,28 +465,42 @@ function applyUiState() {
   granularIncomeToggle.checked = Boolean(uiState.showGranularIncomeFields);
   granularGrowthToggle.checked = Boolean(uiState.showGranularGrowthFields);
   granularCrystallisationToggle.checked = Boolean(uiState.showGranularCrystallisationFields);
-  showPotChartToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.showPotChart));
-  showIncomeChartToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.showIncomeChart));
-  showSpendingChartToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.showSpendingChart));
-  showTableToggle.checked = Boolean(uiState.showTable);
   spendingChartRealToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.spendingChartReal));
   spendingChartMonthlyToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.spendingChartMonthly));
   spendingChartFreeToggle.classList.toggle("chart-toggle-chip-active", uiState.spendingChartMode === "freeOnly");
   spendingChartTaxToggle.classList.toggle("chart-toggle-chip-active",  uiState.spendingChartMode === "taxBreakdown");
   savingsPreRetirementToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.savingsShowPreRetirement));
+  savingsViewPersonalBtn.classList.toggle("chart-toggle-chip-active", uiState.savingsView === "personal");
+  savingsViewPartnerBtn.classList.toggle("chart-toggle-chip-active",  uiState.savingsView === "partner");
+  savingsViewCombinedBtn.classList.toggle("chart-toggle-chip-active", uiState.savingsView === "combined");
   tablePanel.classList.toggle("table-panel-expanded", Boolean(uiState.tableExpanded));
-  toggleTableWidthButton.textContent = uiState.tableExpanded ? "-" : "+";
-  toggleTableWidthButton.setAttribute("aria-label", uiState.tableExpanded ? "Reduce table width" : "Expand table width");
-  toggleTableWidthButton.title = uiState.tableExpanded ? "Reduce table width" : "Expand table width";
+  toggleTableWidthButton.classList.toggle("chart-toggle-chip-active", Boolean(uiState.tableExpanded));
   document.getElementById("granular-options-row").hidden = uiState.tableView !== "granular";
   document.getElementById("custom-options-row").hidden = uiState.tableView !== "custom";
   definedBenefitFields.hidden = !Boolean(state.definedBenefitEnabled);
   savingsFields.hidden = state.useSavings === false;
   partnerDetailFields.hidden = state.partnerDetailsEnabled === false;
+  document.getElementById("partner-pension-panel").hidden = state.partnerDetailsEnabled === false;
+  myPensionFields.hidden = !Boolean(state.myPensionEnabled);
+  partnerPensionFields.hidden = !Boolean(state.partnerPensionEnabled);
+  partnerDbFields.hidden = !Boolean(state.partnerDBEnabled);
+  // Restore panel collapsed states
+  try {
+    document.querySelectorAll(".control-panel .panel, .results-panel .panel").forEach((panel) => {
+      const panelId = panel.querySelector("h2")?.textContent?.trim() || "";
+      const collapsed = Boolean(uiState.collapsedPanels?.[panelId]);
+      panel.classList.toggle("panel-collapsed", collapsed);
+      const btn = panel.querySelector(".panel-collapse-btn");
+      if (btn) btn.textContent = collapsed ? "+" : "−";
+    });
+  } catch { /* ignore */ }
   regularDrawdownFields.hidden = !Boolean(state.regularDrawdownEnabled);
   yearOneTflsFields.hidden = !Boolean(state.take25PercentYear1);
   growthScenarioFields.forEach((field) => {
     field.classList.toggle("growth-scenario-selected", Number(field.dataset.growthScenario) === Number(state.scenario));
+  });
+  partnerGrowthScenarioFields.forEach((field) => {
+    field.classList.toggle("growth-scenario-selected", Number(field.dataset.partnerGrowthScenario) === Number(state.partnerScenario));
   });
 }
 
@@ -457,6 +517,15 @@ function growthRateForScenario(source, phase = "pre") {
   return Number(source[lowKey]);
 }
 
+function growthRateForPartnerScenario(source, phase = "pre") {
+  const lowKey = phase === "post" ? "partnerPostRetirementGrowthLow" : "partnerGrowthLow";
+  const midKey = phase === "post" ? "partnerPostRetirementGrowthMid" : "partnerGrowthMid";
+  const highKey = phase === "post" ? "partnerPostRetirementGrowthHigh" : "partnerGrowthHigh";
+  if (Number(source.partnerScenario) === 2) return Number(source[midKey]);
+  if (Number(source.partnerScenario) === 3) return Number(source[highKey]);
+  return Number(source[lowKey]);
+}
+
 function compoundAnnual(base, rate, yearsElapsed, enabled = true) {
   if (!enabled) {
     return base;
@@ -466,17 +535,27 @@ function compoundAnnual(base, rate, yearsElapsed, enabled = true) {
 
 // Grows a pot over yearsToRetirement, linearly tapering the annual rate
 // from preRate (today) down to postRate (at retirement).
-// When disabled falls back to flat compoundAnnual.
-function taperedPreRetirementGrowth(base, preRate, postRate, yearsToRetirement, enabled) {
-  if (!enabled || yearsToRetirement <= 0) {
-    return compoundAnnual(base, preRate, yearsToRetirement, yearsToRetirement > 0);
+// When disabled uses a flat preRate for every year instead of tapering.
+// monthlyContribution (if any) is paid in at the end of each month and compounds
+// alongside the pot; contributionYears caps how many of the yearsToRetirement years
+// still receive contributions (e.g. contributions stop once someone has retired).
+function taperedPreRetirementGrowth(base, preRate, postRate, yearsToRetirement, enabled, monthlyContribution = 0, contributionYears = yearsToRetirement) {
+  if (yearsToRetirement <= 0) {
+    return base;
   }
   let value = base;
   for (let y = 0; y < yearsToRetirement; y++) {
     // t = 0 in year 1 (use preRate), t = 1 in final year (use postRate)
-    const t = yearsToRetirement === 1 ? 1 : y / (yearsToRetirement - 1);
-    const rate = preRate + (postRate - preRate) * t;
-    value *= Math.pow(1 + rate / 12, 12);
+    const rate = enabled
+      ? preRate + (postRate - preRate) * (yearsToRetirement === 1 ? 1 : y / (yearsToRetirement - 1))
+      : preRate;
+    const monthlyRate = rate / 12;
+    const growthFactor = Math.pow(1 + monthlyRate, 12);
+    value *= growthFactor;
+    if (monthlyContribution > 0 && y < contributionYears) {
+      const annuityFactor = monthlyRate === 0 ? 12 : (growthFactor - 1) / monthlyRate;
+      value += monthlyContribution * annuityFactor;
+    }
   }
   return value;
 }
@@ -827,22 +906,39 @@ function calculateProjection(source) {
   const retirementYear = source.retirementYear;
   const birthYear = source.yearOfBirth;
   const yearsToRetirement = Math.max(0, retirementYear - source.currentYear);
+  const partnerRetirementYear = (source.partnerDetailsEnabled !== false && Number.isFinite(Number(source.partnerBirthYear)) && Number.isFinite(Number(source.partnerRetirementAge)))
+    ? Number(source.partnerBirthYear) + Number(source.partnerRetirementAge)
+    : retirementYear;
+  const yearsToPartnerRetirement = Math.max(0, partnerRetirementYear - source.currentYear);
   const preRetirementGrowthRate = growthRateForScenario(source, "pre");
   const postRetirementGrowthRate = growthRateForScenario(source, "post");
-  const currentUncrystallisedPot = Math.max(0, source.currentPot - source.currentCrystallisedPot);
-  const retirementUncrystallisedPot = taperedPreRetirementGrowth(currentUncrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth);
-  const retirementCrystallisedPot = taperedPreRetirementGrowth(source.currentCrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth);
+  const partnerPreRetirementGrowthRate  = growthRateForPartnerScenario(source, "pre");
+  const partnerPostRetirementGrowthRate = growthRateForPartnerScenario(source, "post");
+  const myPensionEnabled = source.myPensionEnabled !== false;
+  const partnerDetailsEnabled = source.partnerDetailsEnabled !== false;
+  // Partner DC/DB pensions, savings, and income all live behind "Use partner details" —
+  // switching that off should zero out every partner input, not just hide the panels.
+  const partnerPensionEnabled = partnerDetailsEnabled && Boolean(source.partnerPensionEnabled);
+  const effectivePot = myPensionEnabled ? source.currentPot : 0;
+  const effectiveCrystallisedPot = myPensionEnabled ? source.currentCrystallisedPot : 0;
+  const currentUncrystallisedPot = Math.max(0, effectivePot - effectiveCrystallisedPot);
+  const personalMonthlyContribution = myPensionEnabled ? Math.max(0, Number(source.personalMonthlyContribution) || 0) : 0;
+  const partnerMonthlyContribution = partnerPensionEnabled ? Math.max(0, Number(source.partnerMonthlyContribution) || 0) : 0;
+  // Contributions build up the uncrystallised pot only (new money can't land in an already-crystallised pot).
+  const retirementUncrystallisedPot = taperedPreRetirementGrowth(currentUncrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth, personalMonthlyContribution);
+  const retirementCrystallisedPot = taperedPreRetirementGrowth(effectiveCrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth);
 
-  // Effective equivalent flat rate that produces the same tapered result
+  // Effective equivalent flat rate that produces the same tapered result — investment growth only,
+  // excluding contributions, so this stat still reflects the chosen growth-rate assumption.
   let effectivePreRetirementGrowthRate = preRetirementGrowthRate;
-  if (source.taperPreRetirementGrowth && yearsToRetirement > 0 && source.currentPot > 0) {
-    const totalStart = source.currentPot;
-    const totalEnd = retirementUncrystallisedPot + retirementCrystallisedPot;
+  if (source.taperPreRetirementGrowth && yearsToRetirement > 0 && effectivePot > 0) {
+    const retirementUncrystallisedPotNoContrib = taperedPreRetirementGrowth(currentUncrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth);
+    const totalStart = effectivePot;
+    const totalEnd = retirementUncrystallisedPotNoContrib + retirementCrystallisedPot;
     // Invert monthly-compounding formula: r = ((end/start)^(1/(12*n)) - 1) * 12
     effectivePreRetirementGrowthRate = (Math.pow(totalEnd / totalStart, 1 / (12 * yearsToRetirement)) - 1) * 12;
   }
   const personalSavingsEnabled = source.useSavings !== false;
-  const partnerDetailsEnabled = source.partnerDetailsEnabled !== false;
 
   // ── Pre-retirement iterative savings simulation ───────────────────────────
   // Run year-by-year so absolute-year events are applied correctly.
@@ -853,6 +949,8 @@ function calculateProjection(source) {
   let preBank    = personalSavingsEnabled ? source.personalBankSavings      : 0;
   let prePb      = personalSavingsEnabled ? source.personalPremiumBonds     : 0;
   let prePartner = partnerDetailsEnabled  ? source.partnerSavings           : 0;
+  const partnerUncrystallisedAtStart = partnerPensionEnabled ? Math.max(0, source.partnerCurrentPot - source.partnerCrystallisedPot) : 0;
+  const partnerCrystallisedAtStart   = partnerPensionEnabled ? Math.max(0, source.partnerCrystallisedPot) : 0;
 
   for (let i = 0; i < yearsToRetirement; i++) {
     const calYear = source.currentYear + i;
@@ -899,13 +997,21 @@ function calculateProjection(source) {
       }
     });
 
-    // Snapshot the pot value for this year using the tapered formula
-    const prePotSnapshot = taperedPreRetirementGrowth(source.currentPot, preRetirementGrowthRate, postRetirementGrowthRate, i, source.taperPreRetirementGrowth);
+    // Snapshot the pot value for this year using the tapered formula.
+    // Split into uncrystallised/crystallised so contributions only build up the uncrystallised side.
+    const prePotSnapshot =
+      taperedPreRetirementGrowth(currentUncrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, i, source.taperPreRetirementGrowth, personalMonthlyContribution)
+      + taperedPreRetirementGrowth(effectiveCrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, i, source.taperPreRetirementGrowth);
+    const prePartnerPotSnapshot = partnerPensionEnabled
+      ? taperedPreRetirementGrowth(partnerUncrystallisedAtStart, partnerPreRetirementGrowthRate, partnerPostRetirementGrowthRate, i, false, partnerMonthlyContribution, Math.min(yearsToPartnerRetirement, i))
+        + taperedPreRetirementGrowth(partnerCrystallisedAtStart, partnerPreRetirementGrowthRate, partnerPostRetirementGrowthRate, i, false)
+      : 0;
 
     preRetirementRows.push({
       calendarYear: calYear,
       age: preAge,
       totalPotAfterGrowth: prePotSnapshot,
+      partnerPotAfterGrowth: prePartnerPotSnapshot,
       premiumBondsLeft:    prePb,
       isaSavingsLeft:      preIsa,
       bankSavingsLeft:     preBank,
@@ -921,6 +1027,13 @@ function calculateProjection(source) {
   const partnerSavingsAtRetirement         = prePartner;
   const personalSavingsAtRetirement        = personalIsaSavingsAtRetirement + personalBankSavingsAtRetirement + personalPremiumBondsAtRetirement;
   const totalSeparateSavingsAtRetirement   = personalSavingsAtRetirement + partnerSavingsAtRetirement;
+  // Pot value at PERSONAL retirement year using partner's own rates.
+  // The post-retirement loop then continues growing it until partner's own retirement year.
+  // Contributions (capped to partner's own retirement year) only build up the uncrystallised side.
+  const partnerRetirementPot = partnerPensionEnabled
+    ? taperedPreRetirementGrowth(partnerUncrystallisedAtStart, partnerPreRetirementGrowthRate, partnerPostRetirementGrowthRate, yearsToRetirement, false, partnerMonthlyContribution, Math.min(yearsToPartnerRetirement, yearsToRetirement))
+      + taperedPreRetirementGrowth(partnerCrystallisedAtStart, partnerPreRetirementGrowthRate, partnerPostRetirementGrowthRate, yearsToRetirement, false)
+    : 0;
   const remainingLumpSumAllowanceStart = Math.max(0, UK_TAX_RULES.standardLumpSumAllowance - source.lumpSumAllowanceUsed);
   const taxFreeLumpSum = Math.min(retirementUncrystallisedPot * 0.25, remainingLumpSumAllowanceStart);
   const rows = [];
@@ -934,6 +1047,7 @@ function calculateProjection(source) {
   let premiumBondsBalance = personalPremiumBondsAtRetirement;
   let partnerSavingsBalance = partnerSavingsAtRetirement;
   let savingsBalance = isaSavingsBalance + bankSavingsBalance + premiumBondsBalance + partnerSavingsBalance;
+  let partnerPotBalance = partnerRetirementPot;
   let totalBankInterestTax = 0;
   let totalPsaUsed = 0;
   let depletionYear = null;
@@ -996,17 +1110,15 @@ function calculateProjection(source) {
       partnerDetailsEnabled && partnerAge < source.partnerRetirementAge
         ? compoundAnnual(source.partnerWorkIncome, source.partnerWorkCpiRate, yearIndex, source.partnerWorkApplyCpi)
         : 0;
+    const statePensionCpiYears = yearsToRetirement + yearIndex - 1;
+    const statePensionBase = compoundAnnual(source.statePension, source.statePensionGrowthRate, statePensionCpiYears, true);
     const partnerStatePension =
       partnerDetailsEnabled && partnerAge > 67
-        ? compoundAnnual(source.partnerStatePension, source.statePensionCpiRate, yearIndex, source.statePensionApplyCpi)
-        : 0;
-    const partnerWorkPension =
-      partnerDetailsEnabled && partnerAge > 67
-        ? compoundAnnual(source.partnerWorkPension, source.statePensionCpiRate, yearIndex, source.statePensionApplyCpi)
+        ? statePensionBase * (source.partnerStatePensionPct / 100)
         : 0;
     const ownStatePension =
       age > 67
-        ? compoundAnnual(source.ownStatePension, source.ownStatePensionGrowthRate, yearIndex, true)
+        ? statePensionBase * (source.myStatePensionPct / 100)
         : 0;
     const definedBenefitYearIndex = calendarYear - source.definedBenefitStartYear;
     const definedBenefitIncome =
@@ -1021,13 +1133,40 @@ function calculateProjection(source) {
         : 0;
     const lumpSumAllowanceAfterDefinedBenefit = Math.max(0, remainingLumpSumAllowance - definedBenefitLumpSum);
 
+    const partnerDBYearIndex = calendarYear - source.partnerDefinedBenefitStartYear;
+    const partnerDefinedBenefitIncome = partnerDetailsEnabled && source.partnerDBEnabled
+      && partnerDBYearIndex >= 0
+      && partnerDBYearIndex < Math.max(0, Number(source.partnerDefinedBenefitMaxYears) || 0)
+        ? compoundAnnual(source.partnerDefinedBenefitInitialAnnualAmount, source.partnerDefinedBenefitGrowthRate, partnerDBYearIndex, true)
+        : 0;
+    const partnerDefinedBenefitLumpSum = partnerDetailsEnabled && source.partnerDBEnabled && calendarYear === source.partnerDefinedBenefitStartYear
+      ? Math.max(0, source.partnerDefinedBenefitInitialLumpSum)
+      : 0;
+    const partnerHasRetired = partnerPensionEnabled && calendarYear >= partnerRetirementYear;
+    // Income available from all sources except DC pension pots
+    const baseIncomeExcDCPots = partnerWorkIncome + partnerStatePension
+      + ownStatePension + definedBenefitIncome + exceptionalTaxableIncome
+      + exceptionalNonTaxableIncome
+      + partnerDefinedBenefitIncome + partnerDefinedBenefitLumpSum;
+    const totalShortfallExcDCPots = Math.max(0, totalIncomeRequired - baseIncomeExcDCPots - definedBenefitLumpSum);
+    const partnerPotPreDrawdown = partnerPotBalance; // opening balance (used for chart peak alignment)
+    // Proportional drawdown: when both DC pots are in drawdown, each pot takes a share of the
+    // income shortfall proportional to its size relative to the combined pots. The larger pot
+    // absorbs more of the burden. The personal pot covers the remaining share via pensionNeededGross.
+    const effectivePersonalPot = myPensionEnabled ? Math.max(0, uncrystallisedPot + crystallisedPot) : 0;
+    const combinedDCPots = effectivePersonalPot + (partnerHasRetired ? partnerPotBalance : 0);
+    const partnerDCFraction = partnerHasRetired && combinedDCPots > 0 ? partnerPotBalance / combinedDCPots : 0;
+    const partnerPotDrawdown = partnerHasRetired && partnerPotBalance > 0
+      ? Math.min(partnerPotBalance, totalShortfallExcDCPots * partnerDCFraction)
+      : 0;
+
     const partnerIncome = partnerWorkIncome;
     const myOtherIncome = ownStatePension + definedBenefitIncome + exceptionalTaxableIncome;
     const regularDrawdown =
       source.regularDrawdownEnabled && yearIndex <= source.regularDrawdownYears
         ? source.regularDrawdownAmount
         : 0;
-    const baseIncomeTotal = partnerWorkIncome + partnerStatePension + partnerWorkPension + myOtherIncome + exceptionalNonTaxableIncome;
+    const baseIncomeTotal = partnerWorkIncome + partnerStatePension + myOtherIncome + exceptionalNonTaxableIncome + partnerPotDrawdown + partnerDefinedBenefitIncome + partnerDefinedBenefitLumpSum;
     const pensionNeededGross = Math.max(0, totalIncomeRequired - baseIncomeTotal - definedBenefitLumpSum);
     const allowanceBase = compoundAnnual(UK_TAX_RULES.personalAllowance, source.taxAllowanceCpiRate, yearIndex, source.applyTaxAllowanceCpi);
     const taxRules = taxRulesForYear(source, calendarYear);
@@ -1323,6 +1462,14 @@ function calculateProjection(source) {
       partnerSavingsBalance = Math.max(0, partnerSavingsBalance - savingsExpAlloc.partnerSavingsUsed);
     }
     savingsBalance = bankSavingsBalance + premiumBondsBalance + isaSavingsBalance + partnerSavingsBalance;
+    if (partnerHasRetired) {
+      partnerPotBalance = Math.max(0, (partnerPotBalance - partnerPotDrawdown) * (1 + (source.applyPotGrowth ? partnerPostRetirementGrowthRate : 0)));
+    } else {
+      partnerPotBalance = partnerPotBalance * (1 + (source.applyPotGrowth ? partnerPreRetirementGrowthRate : 0)) + partnerMonthlyContribution * 12;
+    }
+    // For the partner retirement year, show the opening (pre-drawdown) balance in the chart
+    // so the visual peak aligns with the "Partner retires" marker rather than the year before.
+    const partnerPotForChart = calendarYear === partnerRetirementYear ? partnerPotPreDrawdown : partnerPotBalance;
 
     if (depletionYear === null && totalPotAfterGrowth < 0.01) {
       depletionYear = { calendarYear, age, yearIndex };
@@ -1338,7 +1485,6 @@ function calculateProjection(source) {
       totalIncomeRequired,
       partnerIncome,
       partnerStatePension,
-      partnerWorkPension,
       myOtherIncome,
       incomeTotal,
       incomeCovered: incomeCoveredReconciled,
@@ -1402,6 +1548,10 @@ function calculateProjection(source) {
       newlyCrystallised: designatedForTaxFree,
       totalPotBeforeGrowth,
       totalPotAfterGrowth,
+      partnerPotAfterGrowth: partnerPotForChart,
+      partnerPotDrawdown,
+      partnerDefinedBenefitIncome,
+      partnerDefinedBenefitLumpSum,
       growth,
       withdrawalsTaken: totalWithdrawn,
       potChange,
@@ -1456,6 +1606,7 @@ function calculateProjection(source) {
     planEndAge: endRow?.age ?? source.retirementAge,
     taperPreRetirementGrowth: Boolean(source.taperPreRetirementGrowth),
     effectivePreRetirementGrowthRate,
+    partnerRetirementYear: source.partnerDetailsEnabled !== false ? partnerRetirementYear : null,
   };
 }
 
@@ -1719,6 +1870,8 @@ function syncForm() {
   // Sync scenario button label
   const activeScenario = scenarioDropdown.querySelector(`[data-value="${state.scenario}"]`);
   if (activeScenario) scenarioButton.textContent = activeScenario.textContent + " ▾";
+  const activePartnerScenario = partnerScenarioDropdown.querySelector(`[data-value="${state.partnerScenario}"]`);
+  if (activePartnerScenario) partnerScenarioButton.textContent = activePartnerScenario.textContent + " ▾";
   // Sync savings tax optimisation button label
   const activeSto = savingsTaxOptimDropdown.querySelector(`[data-value="${state.savingsTaxOptimisation ?? "my"}"]`);
   if (activeSto) savingsTaxOptimButton.textContent = activeSto.textContent + " ▾";
@@ -1793,7 +1946,9 @@ function renderSummary(projection) {
     {
       label: "Uncrystallised at retirement",
       value: formatCurrency(projection.retirementUncrystallisedPot),
-      note: `Crystallised ${formatCurrency(projection.retirementCrystallisedPot)}`,
+      // Cumulative crystallised total to date (starting crystallised pot + every TFLS designation
+      // since, at 4x cash taken) — not the static retirement-day snapshot, which never moves.
+      note: `Crystallised to date ${formatCurrency(lastRow?.crystallisedPot ?? projection.retirementCrystallisedPot)}`,
     },
     {
       label: "My savings at plan end",
@@ -1939,9 +2094,11 @@ function getTableColumnSets() {
     ["carCost", "Car"],
     ["partnerIncome", "Partner work income"],
     ["partnerStatePension", "Partner state pension"],
-    ["partnerWorkPension", "Partner work pension"],
     ["definedBenefitIncome", "My DB pension"],
-    ["definedBenefitLumpSum", "DB lump sum"],
+    ["definedBenefitLumpSum", "My DB lump sum"],
+    ["partnerDefinedBenefitIncome", "Partner DB pension"],
+    ["partnerDefinedBenefitLumpSum", "Partner DB lump sum"],
+    ["partnerPotDrawdown", "Partner DC pension"],
     ["taxFreeCash", "TFLS (Tax Free Lump Sum)"],
     ["sourcedFromSavings", "Sourced from Savings"],
     ["incomeTotal", "Income total"],
@@ -1975,10 +2132,12 @@ function getTableColumnSets() {
     ["totalIncomeRequired", "Gross income required incl. car"],
     ["partnerIncome", "Partner work income"],
     ["partnerStatePension", "Partner state pension"],
-    ["partnerWorkPension", "Partner work pension"],
     ["ownStatePension", "My state pension"],
     ["definedBenefitIncome", "My DB pension"],
-    ["definedBenefitLumpSum", "DB lump sum"],
+    ["definedBenefitLumpSum", "My DB lump sum"],
+    ["partnerDefinedBenefitIncome", "Partner DB pension"],
+    ["partnerDefinedBenefitLumpSum", "Partner DB lump sum"],
+    ["partnerPotDrawdown", "Partner DC pension"],
     ["taxFreeCash", "TFLS (Tax Free Lump Sum)"],
     ["sourcedFromSavings", "Sourced from Savings"],
     ["incomeTotal", "Income total"],
@@ -2008,9 +2167,12 @@ function getTableColumnSets() {
   const detailedColumnsWithoutIncomeBreakdown = granularBaseDetailColumns.filter(([key]) => ![
     "partnerIncome",
     "partnerStatePension",
-    "partnerWorkPension",
     "ownStatePension",
     "definedBenefitIncome",
+    "definedBenefitLumpSum",
+    "partnerDefinedBenefitIncome",
+    "partnerDefinedBenefitLumpSum",
+    "partnerPotDrawdown",
     "taxFreeCash",
     "sourcedFromSavings",
   ].includes(key));
@@ -2223,11 +2385,13 @@ function getColumnCalculationNote(key, label) {
     carCost: 'Car cost applied in the configured replacement years only.',
     totalIncomeRequired: 'Gross income required including any car cost in that year.',
     partnerIncome: 'Partner work income, stopping when state pension starts.',
-    partnerStatePension: 'Partner state pension after trigger age and CPI rules.',
-    partnerWorkPension: 'Partner work pension after trigger age and CPI rules.',
-    ownStatePension: 'Your state pension after trigger age and your own state pension growth rate.',
+    partnerStatePension: "Partner's share of the state pension, compounded from today's value at the shared state pension growth rate.",
+    ownStatePension: "Your share of the state pension, compounded from today's value at the shared state pension growth rate.",
     definedBenefitIncome: 'Inflexible defined benefit income, starting in the selected year, growing annually, and included in your taxable income before flexible drawdown is optimised.',
     definedBenefitLumpSum: 'Tax-free defined benefit lump sum in the DB start year. It reduces remaining lump sum allowance before flexible TFLS is calculated.',
+    partnerDefinedBenefitIncome: "Partner's fixed defined benefit income — starts in the configured year, grows at the DB growth rate, and contributes to household income automatically.",
+    partnerDefinedBenefitLumpSum: "Partner's DB lump sum in the DB start year.",
+    partnerPotDrawdown: "Amortised annual drawdown from the partner's DC pension pot, spread evenly over the remaining plan years with pot growth applied.",
     taxFreeCash: 'Tax Free Lump Sum taken from available uncrystallised pension funds and tested against remaining lump sum allowance.',
     tflsBy75Target: 'Minimum annual TFLS target used when the Use TFLS by 75 option is on, based on remaining lump sum allowance and years left to age 75. When maximise drawdown and forced TFLS pairing are both on, the actual TFLS taken is capped to the basic-rate paired capacity.',
     sourcedFromSavings: 'Savings used in tax optimisation mode to avoid or reduce taxable pension drawdown. Partner savings are smoothed across the remaining plan and capped in early years.',
@@ -2296,8 +2460,7 @@ function getColumnCalculationNote(key, label) {
 }
 
 function renderTable(projection) {
-  tableWrap.hidden = !uiState.showTable;
-  if (!uiState.showTable) return;
+  if (uiState.collapsedPanels?.["Detailed Breakdown Table"]) return;
   const columns = getTableColumns();
 
   const headRow = document.createElement("tr");
@@ -2438,17 +2601,18 @@ function renderSpendingChartCanvas({ canvas, projection, realTerms, monthly, mod
     return { spending, tax, basicTax, higherTax, surplus, shortfall, stackTop };
   });
 
-  const axisStep = monthly ? 1000 : 10000;
   const minShortfall = Math.min(0, ...rowData.map(d => d.shortfall));
-  const maxStack     = Math.max(axisStep, ...rowData.map(d => d.stackTop));
-  const minValue = Math.min(0, Math.floor(minShortfall / axisStep) * axisStep);
-  const maxValue = Math.ceil(maxStack / axisStep) * axisStep;
-  const range    = maxValue - minValue;
-  const hasShortfall = minValue < 0;
+  const maxStackRaw  = Math.max(0, ...rowData.map(d => d.stackTop));
 
   const pad = { top: 56, right: 22, bottom: 56, left: 70 };
   const plotWidth  = width  - pad.left - pad.right;
   const plotHeight = height - pad.top  - pad.bottom;
+  const axisStep = niceAxisStep(maxStackRaw - minShortfall, plotHeight);
+  const minValue = Math.min(0, Math.floor(minShortfall / axisStep) * axisStep);
+  const maxValue = Math.max(axisStep, Math.ceil(maxStackRaw / axisStep) * axisStep);
+  const range    = maxValue - minValue;
+  const hasShortfall = minValue < 0;
+
   const yFor    = (v) => pad.top + plotHeight - ((v - minValue) / range) * plotHeight;
   const zeroY   = yFor(0);
   const barBand = plotWidth / Math.max(1, projection.rows.length);
@@ -2768,12 +2932,11 @@ function renderChart(projection) {
   _savingsChartProjection = projection;
   _spendingChartState = { projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, mode: uiState.spendingChartMode };
   _incomeChartState = { projection };
-  potChartWrap.hidden = !uiState.showPotChart;
-  incomeChartWrap.hidden = !uiState.showIncomeChart;
-  spendingChartSection.hidden = !uiState.showSpendingChart;
-  chartEmptyMessage.hidden = uiState.showPotChart || uiState.showIncomeChart || uiState.showSpendingChart;
+  const potCollapsed = Boolean(uiState.collapsedPanels?.["Savings & pot"]);
+  const incomeCollapsed = Boolean(uiState.collapsedPanels?.["Income"]);
+  const spendingCollapsed = Boolean(uiState.collapsedPanels?.["Spending"]);
 
-  if (uiState.showSpendingChart) {
+  if (!spendingCollapsed) {
     const mode = uiState.spendingChartMode;
     renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms: uiState.spendingChartReal, monthly: uiState.spendingChartMonthly, mode });
     const captionParts = [];
@@ -2784,13 +2947,26 @@ function renderChart(projection) {
     spendingChartCaption.textContent = captionParts.length ? `Showing ${captionParts.join(", ")}` : "Annual nominal values";
   }
 
-  if (uiState.showPotChart) {
-    renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection, showPreRetirement: uiState.savingsShowPreRetirement });
+  if (!potCollapsed) {
+    renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection, showPreRetirement: uiState.savingsShowPreRetirement, view: uiState.savingsView });
   }
 
-  if (uiState.showIncomeChart) {
+  if (!incomeCollapsed) {
     renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection });
   }
+}
+
+// Picks a "nice" axis step (1/2/5 × 10^n) so Y-axis labels stay legibly spaced
+// regardless of the value range, instead of a fixed step that crowds together
+// once the range grows (e.g. long plans or large pots).
+function niceAxisStep(range, plotHeight, minLabelSpacingPx = 32) {
+  if (!(range > 0) || !(plotHeight > 0)) return 1;
+  const maxTicks = Math.max(2, Math.floor(plotHeight / minLabelSpacingPx));
+  const roughStep = range / maxTicks;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+  const residual = roughStep / magnitude;
+  const niceResidual = residual > 5 ? 10 : residual > 2 ? 5 : residual > 1 ? 2 : 1;
+  return niceResidual * magnitude;
 }
 
 function getChartStyle() {
@@ -2985,22 +3161,35 @@ function renderChartCanvas({ canvas, projection, axisStep, series, maxFallback =
   });
 }
 
-function renderStackedSavingsChartCanvas({ canvas, projection, showPreRetirement = false, hoverX = null }) {
+function renderStackedSavingsChartCanvas({ canvas, projection, showPreRetirement = false, view = "combined", hoverX = null }) {
   if (!canvas.clientWidth) return;
 
-  // Layers drawn bottom → top. Colours chosen for maximum differentiation.
-  const layers = [
-    { key: "totalPotAfterGrowth", label: "Pension pot",     color: "#10b981", fill: "rgba(16,185,129,0.72)" },
-    { key: "premiumBondsLeft",    label: "Premium Bonds",   color: "#f59e0b", fill: "rgba(245,158,11,0.70)" },
-    { key: "isaSavingsLeft",      label: "ISA",             color: "#3b82f6", fill: "rgba(59,130,246,0.70)" },
-    { key: "bankSavingsLeft",     label: "Bank savings",    color: "#a855f7", fill: "rgba(168,85,247,0.70)" },
-  ];
+  // All possible layers — filtered by view below
+  const personalKeys = new Set(["totalPotAfterGrowth","premiumBondsLeft","isaSavingsLeft","bankSavingsLeft"]);
+  const partnerKeys  = new Set(["partnerPotAfterGrowth","partnerSavingsLeft"]);
+
   const allRows = showPreRetirement && projection.preRetirementRows?.length
     ? [...projection.preRetirementRows, ...projection.rows]
     : projection.rows;
   const retirementSplitIndex = showPreRetirement ? (projection.preRetirementRows?.length ?? 0) : -1;
+
+  // Layers drawn bottom → top. Colours chosen for maximum differentiation.
+  let layers = [
+    { key: "totalPotAfterGrowth", label: "My pension pot",  color: "#10b981", fill: "rgba(16,185,129,0.72)" },
+    { key: "premiumBondsLeft",    label: "Premium Bonds",   color: "#f59e0b", fill: "rgba(245,158,11,0.70)" },
+    { key: "isaSavingsLeft",      label: "ISA",             color: "#3b82f6", fill: "rgba(59,130,246,0.70)" },
+    { key: "bankSavingsLeft",     label: "Bank savings",    color: "#a855f7", fill: "rgba(168,85,247,0.70)" },
+  ];
+  if (allRows.some((r) => (r.partnerPotAfterGrowth || 0) > 0.5)) {
+    layers.splice(1, 0, { key: "partnerPotAfterGrowth", label: "Partner pot", color: "#06b6d4", fill: "rgba(6,182,212,0.70)" });
+  }
   if (allRows.some((r) => (r.partnerSavingsLeft || 0) > 0.5)) {
     layers.push({ key: "partnerSavingsLeft", label: "Partner savings", color: "#f43f5e", fill: "rgba(244,63,94,0.70)" });
+  }
+  if (view === "personal") {
+    layers = layers.filter((l) => personalKeys.has(l.key));
+  } else if (view === "partner") {
+    layers = layers.filter((l) => partnerKeys.has(l.key));
   }
 
   const n = allRows.length;
@@ -3021,8 +3210,8 @@ function renderStackedSavingsChartCanvas({ canvas, projection, showPreRetirement
   const pad = { top: 60, right: 22, bottom: 56, left: 70 };
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
-  const axisStep = 100000;
   const rawMax = Math.max(...stackTotals, projection.totalRetirementPot || 0);
+  const axisStep = niceAxisStep(rawMax, plotHeight);
   const maxValue = Math.max(axisStep, Math.ceil(rawMax / axisStep) * axisStep);
 
   const xFor = (i) => pad.left + (n === 1 ? 0 : (i / (n - 1)) * plotWidth);
@@ -3094,8 +3283,8 @@ function renderStackedSavingsChartCanvas({ canvas, projection, showPreRetirement
     tops.forEach((v, i) => { baselines[i] = v; });
   });
 
-  // Retirement divider line (only when showing pre-retirement)
-  if (retirementSplitIndex > 0 && retirementSplitIndex < n) {
+  // Retirement divider line (only when showing pre-retirement; skip in partner-only view)
+  if (retirementSplitIndex > 0 && retirementSplitIndex < n && view !== "partner") {
     const rx = xFor(retirementSplitIndex);
     // Shaded overlay on pre-retirement side
     ctx.save();
@@ -3129,6 +3318,41 @@ function renderStackedSavingsChartCanvas({ canvas, projection, showPreRetirement
     ctx.textBaseline = "middle";
     ctx.fillText(badgeText, rx, by + bh / 2);
     ctx.restore();
+  }
+
+  // Partner retirement marker (skip in personal-only view)
+  if (showPreRetirement && projection.partnerRetirementYear && view !== "personal") {
+    const pIdx = allRows.findIndex((r) => r.calendarYear >= projection.partnerRetirementYear);
+    if (pIdx > 0 && pIdx < n) {
+      const px = xFor(pIdx);
+      ctx.save();
+      ctx.strokeStyle = "rgba(6,182,212,0.85)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(px, pad.top);
+      ctx.lineTo(px, pad.top + plotHeight);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const pBadge = `Partner retires ${projection.partnerRetirementYear}`;
+      ctx.font = "bold 11px " + (cs.font.split("px ")[1] || "sans-serif");
+      const pbw = ctx.measureText(pBadge).width + 16;
+      const pbh = 20;
+      const pbx = px - pbw / 2;
+      const pby = pad.top + 14;
+      ctx.fillStyle = "rgba(6,182,212,0.18)";
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(pbx, pby, pbw, pbh, 6); else ctx.rect(pbx, pby, pbw, pbh);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(6,182,212,0.7)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = "rgba(6,182,212,1)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(pBadge, px, pby + pbh / 2);
+      ctx.restore();
+    }
   }
 
   // X-axis year labels
@@ -3232,11 +3456,13 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
   const incomeSources = [
     { key: "partnerIncome",          label: "Partner work",             color: "#2563eb" },
     { key: "partnerStatePension",    label: "Partner state pension",    color: "#16a34a" },
-    { key: "partnerWorkPension",     label: "Partner work pension",     color: "#65a30d" },
     { key: "ownStatePension",        label: "My state pension",         color: "#0f766e" },
-    { key: "definedBenefitIncome",   label: "My DB pension",            color: "#0891b2" },
-    { key: "definedBenefitLumpSum",  label: "DB lump sum",              color: "#06b6d4" },
-    { key: "taxFreeCash",            label: "TFLS",                     color: "#f59e0b" },
+    { key: "definedBenefitIncome",          label: "My DB pension",         color: "#0891b2" },
+    { key: "definedBenefitLumpSum",         label: "My DB lump sum",        color: "#06b6d4" },
+    { key: "partnerDefinedBenefitIncome",   label: "Partner DB pension",    color: "#f97316" },
+    { key: "partnerDefinedBenefitLumpSum",  label: "Partner DB lump sum",   color: "#fdba74" },
+    { key: "partnerPotDrawdown",            label: "Partner DC pension",    color: "#22d3ee" },
+    { key: "taxFreeCash",                   label: "TFLS",                  color: "#f59e0b" },
     { key: "grossPensionWithdrawal", label: "Taxable pension withdrawn", color: "#7c3aed" },
     { key: "_mySavingsUsed",         label: "My savings",               color: "#db2777" },
     { key: "_partnerSavingsUsed",    label: "Partner savings",          color: "#f472b6" },
@@ -3259,8 +3485,9 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
   const pad = { top: 60, right: 22, bottom: 56, left: 70 };
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
-  const axisStep = 10000;
-  const maxValue = Math.max(axisStep, Math.ceil(Math.max(...stackedTotals, ...rows.map((row) => row.totalIncomeRequired)) / axisStep) * axisStep);
+  const rawMax = Math.max(...stackedTotals, ...rows.map((row) => row.totalIncomeRequired));
+  const axisStep = niceAxisStep(rawMax, plotHeight);
+  const maxValue = Math.max(axisStep, Math.ceil(rawMax / axisStep) * axisStep);
   const yFor = (value) => pad.top + plotHeight - (value / maxValue) * plotHeight;
   const barBand = plotWidth / Math.max(1, rows.length);
   const xFor = (index) => pad.left + index * barBand + barBand / 2;
@@ -3324,12 +3551,17 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
     ctx.fillText(`(age ${row.age})`, x, height - 18);
   });
 
+  // Only legend entries with at least one non-zero value across all rows
+  const activeSources = incomeSources.filter((src) =>
+    rows.some((r) => (Number(r[src.key]) || 0) > 0.5)
+  );
+
   let legendX = pad.left;
   let legendY = 16;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.font = cs.font;
-  [...incomeSources, needSeries].forEach((item) => {
+  [...activeSources, needSeries].forEach((item) => {
     const itemWidth = ctx.measureText(item.label).width + 58;
     if (legendX > pad.left && legendX + itemWidth > width - pad.right) {
       legendX = pad.left;
@@ -3584,8 +3816,10 @@ function buildPlanExportAssumptions(projection) {
       forceTflsTaxablePairing: state.forceTflsTaxablePairing,
     },
     personalIncome: {
-      ownStatePension: state.ownStatePension,
-      ownStatePensionGrowthRate: state.ownStatePensionGrowthRate,
+      statePension: state.statePension,
+      statePensionGrowthRate: state.statePensionGrowthRate,
+      myStatePensionPct: state.myStatePensionPct,
+      partnerStatePensionPct: state.partnerStatePensionPct,
       definedBenefitEnabled: state.definedBenefitEnabled,
       definedBenefitStartYear: state.definedBenefitStartYear,
       definedBenefitInitialLumpSum: state.definedBenefitInitialLumpSum,
@@ -3614,13 +3848,9 @@ function buildPlanExportAssumptions(projection) {
       partnerWorkIncome: state.partnerWorkIncome,
       partnerWorkApplyCpi: state.partnerWorkApplyCpi,
       partnerWorkCpiRate: state.partnerWorkCpiRate,
-      partnerStatePension: state.partnerStatePension,
-      partnerWorkPension: state.partnerWorkPension,
       partnerSavings: state.partnerSavings,
       partnerSavingsGrowthRate: state.partnerSavingsGrowthRate,
       partnerSavingsAtRetirement: projection.partnerSavingsAtRetirement,
-      statePensionApplyCpi: state.statePensionApplyCpi,
-      statePensionCpiRate: state.statePensionCpiRate,
       savingsTaxOptimisation: state.savingsTaxOptimisation,
     },
   };
@@ -3670,11 +3900,12 @@ function buildCurrentPlanExport() {
       rows,
       preRetirementRows: (projection.preRetirementRows || []).map((row) => plainObjectForExport(row)),
     },
+    retirementYear: projection.retirementYear,
+    partnerRetirementYear: projection.partnerRetirementYear ?? null,
     chart: {
       stackedBarSeries: [
         { key: "partnerIncome", label: "Partner work income" },
         { key: "partnerStatePension", label: "Partner state pension" },
-        { key: "partnerWorkPension", label: "Partner work pension" },
         { key: "ownStatePension", label: "My state pension" },
         { key: "definedBenefitIncome", label: "My DB pension" },
         { key: "definedBenefitLumpSum", label: "DB lump sum" },
@@ -3821,7 +4052,6 @@ function exportFormulaWorkbookToExcel() {
     ["totalIncomeRequired", "Gross income required incl. car"],
     ["partnerIncome", "Partner work income"],
     ["partnerStatePension", "Partner state pension"],
-    ["partnerWorkPension", "Partner work pension"],
     ["ownStatePension", "My state pension"],
     ["definedBenefitIncome", "My DB pension"],
     ["definedBenefitLumpSum", "DB lump sum"],
@@ -3863,18 +4093,16 @@ function exportFormulaWorkbookToExcel() {
     ["Partner work income", state.partnerWorkIncome],
     ["Partner work CPI", state.partnerWorkCpiRate],
     ["Apply CPI to partner work", state.partnerWorkApplyCpi ? 1 : 0],
-    ["Partner state pension", state.partnerStatePension],
-    ["Partner work pension", state.partnerWorkPension],
-    ["Own state pension", state.ownStatePension],
-    ["Own state pension growth", state.ownStatePensionGrowthRate],
+    ["State pension (today)", state.statePension],
+    ["State pension growth rate", state.statePensionGrowthRate],
+    ["My state pension %", state.myStatePensionPct],
+    ["Partner state pension %", state.partnerStatePensionPct],
     ["Defined benefit enabled", state.definedBenefitEnabled ? 1 : 0],
     ["Defined benefit start year", state.definedBenefitStartYear],
     ["Defined benefit initial lump sum", state.definedBenefitInitialLumpSum],
     ["Defined benefit initial annual amount", state.definedBenefitInitialAnnualAmount],
     ["Defined benefit max years", state.definedBenefitMaxYears],
     ["Defined benefit growth rate", state.definedBenefitGrowthRate],
-    ["State/work pension CPI", state.statePensionCpiRate],
-    ["Apply CPI to state/work pensions", state.statePensionApplyCpi ? 1 : 0],
     ["Personal allowance", UK_TAX_RULES.personalAllowance],
     ["Tax bands CPI", state.taxBandCpiRate],
     ["Tax bands every N years", state.taxBandCpiFrequencyYears],
@@ -3945,7 +4173,6 @@ function exportFormulaWorkbookToExcel() {
       totalIncomeRequired: `=${cell("incomeRequired", rowNumber)}+${cell("carCost", rowNumber)}`,
       partnerIncome: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}<${assumptionRef["Partner retirement age"]},IF(${assumptionRef["Apply CPI to partner work"]}=1,${assumptionRef["Partner work income"]}*POWER(1+${assumptionRef["Partner work CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner work income"]}),0),0)`,
       partnerStatePension: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}>67,IF(${assumptionRef["Apply CPI to state/work pensions"]}=1,${assumptionRef["Partner state pension"]}*POWER(1+${assumptionRef["State/work pension CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner state pension"]}),0),0)`,
-      partnerWorkPension: `=IF(${assumptionRef["Partner details enabled"]}=1,IF(${cell("calendarYear", rowNumber)}-${assumptionRef["Partner birth year"]}>67,IF(${assumptionRef["Apply CPI to state/work pensions"]}=1,${assumptionRef["Partner work pension"]}*POWER(1+${assumptionRef["State/work pension CPI"]}/12,12*${cell("yearIndex", rowNumber)}),${assumptionRef["Partner work pension"]}),0),0)`,
       ownStatePension: `=IF(${cell("age", rowNumber)}>67,${assumptionRef["Own state pension"]}*POWER(1+${assumptionRef["Own state pension growth"]}/12,12*${cell("yearIndex", rowNumber)}),0)`,
       definedBenefitIncome: `=IF(AND(${assumptionRef["Defined benefit enabled"]}=1,${cell("calendarYear", rowNumber)}>=${assumptionRef["Defined benefit start year"]},${cell("calendarYear", rowNumber)}<${assumptionRef["Defined benefit start year"]}+${assumptionRef["Defined benefit max years"]}),${assumptionRef["Defined benefit initial annual amount"]}*POWER(1+${assumptionRef["Defined benefit growth rate"]}/12,12*(${cell("calendarYear", rowNumber)}-${assumptionRef["Defined benefit start year"]})),0)`,
       definedBenefitLumpSum: `=IF(AND(${assumptionRef["Defined benefit enabled"]}=1,${cell("calendarYear", rowNumber)}=${assumptionRef["Defined benefit start year"]}),MIN(${priorLsa},${assumptionRef["Defined benefit initial lump sum"]}),0)`,
@@ -4184,6 +4411,26 @@ scenarioOptions.forEach((btn) => {
   });
 });
 
+partnerScenarioButton.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const opening = partnerScenarioDropdown.hidden;
+  closeAllMenus();
+  if (opening) {
+    partnerScenarioDropdown.hidden = false;
+    partnerScenarioButton.textContent = partnerScenarioButton.textContent.replace("▾", "▴");
+  }
+});
+partnerScenarioDropdown.addEventListener("click", (e) => e.stopPropagation());
+partnerScenarioOptions.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    state.partnerScenario = Number(btn.dataset.value);
+    partnerScenarioButton.textContent = btn.textContent + " ▾";
+    partnerScenarioDropdown.hidden = true;
+    state = normaliseState(state, "partnerScenario");
+    render();
+  });
+});
+
 tableViewButton.addEventListener("click", (e) => {
   e.stopPropagation();
   const opening = tableViewDropdown.hidden;
@@ -4250,45 +4497,58 @@ granularCrystallisationToggle.addEventListener("change", () => {
   render();
 });
 
-showPotChartToggle.addEventListener("click", () => {
-  uiState.showPotChart = !uiState.showPotChart;
-  saveUiState();
-  render();
-});
-
 savingsPreRetirementToggle.addEventListener("click", () => {
   uiState.savingsShowPreRetirement = !uiState.savingsShowPreRetirement;
+  savingsPreRetirementToggle.classList.toggle("chart-toggle-chip-active", Boolean(uiState.savingsShowPreRetirement));
   saveUiState();
-  if (_savingsChartProjection && uiState.showPotChart) {
-    renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection, showPreRetirement: uiState.savingsShowPreRetirement });
+  if (_savingsChartProjection && !uiState.collapsedPanels?.["Savings & pot"]) {
+    renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection, showPreRetirement: uiState.savingsShowPreRetirement, view: uiState.savingsView });
   }
+});
+
+[
+  [savingsViewPersonalBtn, "personal"],
+  [savingsViewPartnerBtn,  "partner"],
+  [savingsViewCombinedBtn, "combined"],
+].forEach(([btn, view]) => {
+  btn.addEventListener("click", () => {
+    uiState.savingsView = view;
+    savingsViewPersonalBtn.classList.toggle("chart-toggle-chip-active", view === "personal");
+    savingsViewPartnerBtn.classList.toggle("chart-toggle-chip-active",  view === "partner");
+    savingsViewCombinedBtn.classList.toggle("chart-toggle-chip-active", view === "combined");
+    saveUiState();
+    if (_savingsChartProjection && !uiState.collapsedPanels?.["Savings & pot"]) {
+      renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection, showPreRetirement: uiState.savingsShowPreRetirement, view });
+    }
+  });
 });
 
 // Savings chart hover tooltip
 potChartCanvas.addEventListener("mousemove", (e) => {
-  if (!_savingsChartProjection || !uiState.showPotChart) return;
+  if (!_savingsChartProjection || uiState.collapsedPanels?.["Savings & pot"]) return;
   const rect = potChartCanvas.getBoundingClientRect();
   renderStackedSavingsChartCanvas({
     canvas: potChartCanvas,
     projection: _savingsChartProjection,
     showPreRetirement: uiState.savingsShowPreRetirement,
+    view: uiState.savingsView,
     hoverX: e.clientX - rect.left,
   });
 });
 potChartCanvas.addEventListener("mouseleave", () => {
-  if (!_savingsChartProjection || !uiState.showPotChart) return;
-  renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection, showPreRetirement: uiState.savingsShowPreRetirement });
+  if (!_savingsChartProjection || uiState.collapsedPanels?.["Savings & pot"]) return;
+  renderStackedSavingsChartCanvas({ canvas: potChartCanvas, projection: _savingsChartProjection, showPreRetirement: uiState.savingsShowPreRetirement, view: uiState.savingsView });
 });
 
 // Income chart hover tooltip
 incomeChartCanvas.addEventListener("mousemove", (e) => {
-  if (!_incomeChartState || !uiState.showIncomeChart) return;
+  if (!_incomeChartState || uiState.collapsedPanels?.["Income"]) return;
   const { projection } = _incomeChartState;
   const rect = incomeChartCanvas.getBoundingClientRect();
   renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection, hoverX: e.clientX - rect.left });
 });
 incomeChartCanvas.addEventListener("mouseleave", () => {
-  if (!_incomeChartState || !uiState.showIncomeChart) return;
+  if (!_incomeChartState || uiState.collapsedPanels?.["Income"]) return;
   renderStackedIncomeChartCanvas({ canvas: incomeChartCanvas, projection: _incomeChartState.projection });
 });
 
@@ -4305,23 +4565,6 @@ spendingChartCanvas.addEventListener("mouseleave", () => {
   renderSpendingChartCanvas({ canvas: spendingChartCanvas, projection, realTerms, monthly, mode });
 });
 
-showIncomeChartToggle.addEventListener("click", () => {
-  uiState.showIncomeChart = !uiState.showIncomeChart;
-  saveUiState();
-  render();
-});
-
-showSpendingChartToggle.addEventListener("click", () => {
-  uiState.showSpendingChart = !uiState.showSpendingChart;
-  saveUiState();
-  render();
-});
-
-showTableToggle.addEventListener("change", () => {
-  uiState.showTable = showTableToggle.checked;
-  saveUiState();
-  render();
-});
 
 spendingChartRealToggle.addEventListener("click", () => {
   uiState.spendingChartReal = !uiState.spendingChartReal;
@@ -4352,6 +4595,30 @@ togglePanelButton.addEventListener("click", () => {
   render();
 });
 
+// ── Panel collapse buttons ────────────────────────────────────────────────
+document.querySelectorAll(".control-panel .panel, .results-panel .panel").forEach((panel) => {
+  const btn = document.createElement("button");
+  btn.className = "panel-collapse-btn";
+  btn.type = "button";
+  btn.textContent = "−";
+  const panelId = panel.querySelector("h2")?.textContent?.trim() || "";
+  btn.setAttribute("aria-label", "Collapse " + panelId);
+  btn.setAttribute("title", "Collapse " + panelId);
+  panel.appendChild(btn);
+  btn.addEventListener("click", () => {
+    const id = panel.querySelector("h2")?.textContent?.trim() || "";
+    const isCollapsed = panel.classList.toggle("panel-collapsed");
+    btn.textContent = isCollapsed ? "+" : "−";
+    btn.setAttribute("aria-label", (isCollapsed ? "Expand " : "Collapse ") + id);
+    btn.setAttribute("title", (isCollapsed ? "Expand " : "Collapse ") + id);
+    if (!uiState.collapsedPanels) uiState.collapsedPanels = {};
+    if (isCollapsed) uiState.collapsedPanels[id] = true;
+    else delete uiState.collapsedPanels[id];
+    saveUiState();
+    if (!isCollapsed && panel.closest(".results-panel")) render();
+  });
+});
+
 // ── Shared menu helpers ───────────────────────────────────────────────────
 function closeAllMenus() {
   tableViewDropdown.hidden = true;
@@ -4360,6 +4627,8 @@ function closeAllMenus() {
   ioMenuButton.textContent = "Import / Export ▾";
   scenarioDropdown.hidden = true;
   scenarioButton.textContent = scenarioButton.textContent.replace("▴", "▾");
+  partnerScenarioDropdown.hidden = true;
+  partnerScenarioButton.textContent = partnerScenarioButton.textContent.replace("▴", "▾");
   savingsTaxOptimDropdown.hidden = true;
   savingsTaxOptimButton.textContent = savingsTaxOptimButton.textContent.replace("▴", "▾");
 }
@@ -4498,6 +4767,9 @@ let activeIncomeBtn = null;
 
 const INCOME_SLIDER_CONFIG = {
   currentPot:          { label: "Total pension pot",   min: 0,     max: 1000000, step: 5000, format: "currency" },
+  partnerCurrentPot:   { label: "Partner pension pot", min: 0,     max: 1000000, step: 5000, format: "currency" },
+  personalMonthlyContribution: { label: "Monthly contribution",         min: 0, max: 5000, step: 50, format: "currency" },
+  partnerMonthlyContribution:  { label: "Partner monthly contribution", min: 0, max: 5000, step: 50, format: "currency" },
   incomeRequired:      { label: "Income required",     min: 0,     max: 100000, step: 1000, format: "currency" },
   incomeAfterYear10:   { label: "After year 10",       min: 0,     max: 100000, step: 1000, format: "currency" },
   billsAnnual:         { label: "Household bills",     min: 0,     max: 50000,  step: 1000, format: "currency" },
@@ -4511,27 +4783,30 @@ const INCOME_SLIDER_CONFIG = {
   personalIsaSavings:   { label: "ISA savings",             min: 0,     max: 200000, step: 1000,  format: "currency" },
   personalPremiumBonds: { label: "Premium Bonds",           min: 0,     max: 50000,  step: 1000,  format: "currency" },
   partnerSavings:       { label: "Partner savings",         min: 0,     max: 200000, step: 1000,  format: "currency" },
-  // State & work pensions (currency)
-  ownStatePension:      { label: "Own state pension",       min: 12000, max: 16000,  step: 100,   format: "currency" },
-  partnerStatePension:  { label: "Partner state pension",   min: 12000, max: 16000,  step: 100,   format: "currency" },
+  // State pension (shared)
+  statePension:         { label: "State pension (today)",   min: 9000,  max: 15000,  step: 100,   format: "currency" },
   partnerRetirementAge: { label: "Partner retirement age", min: 50, max: 75, step: 1, format: "number", unit: "yrs" },
   partnerWorkIncome:    { label: "Partner work income",     min: 0,     max: 30000,  step: 500,   format: "currency" },
-  partnerWorkPension:   { label: "Partner work pension",    min: 0,     max: 30000,  step: 500,   format: "currency" },
   // CPI / inflation rates (0–10%, stored as decimal)
   cpiRate:                    { label: "CPI rate",                  min: 0, max: 0.10, step: 0.005, format: "percent" },
   partnerWorkCpiRate:         { label: "Partner work CPI",          min: 0, max: 0.10, step: 0.005, format: "percent" },
-  statePensionCpiRate:        { label: "Partner pension CPI",       min: 0, max: 0.10, step: 0.005, format: "percent" },
-  ownStatePensionGrowthRate:  { label: "State pension growth",      min: 0, max: 0.10, step: 0.005, format: "percent" },
+  statePensionGrowthRate:     { label: "State pension growth",      min: 0, max: 0.10, step: 0.005, format: "percent" },
   taxAllowanceCpiRate:        { label: "Tax allowance CPI",         min: 0, max: 0.10, step: 0.005, format: "percent" },
   taxBandCpiRate:             { label: "Tax bands CPI",             min: 0, max: 0.10, step: 0.005, format: "percent" },
   // Growth rates (capped by maxGrowthRate, stored as decimal)
-  growthLow:                  { label: "Low pre-retirement",        min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
-  postRetirementGrowthLow:    { label: "Low post-retirement",       min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
-  growthMid:                  { label: "Mid pre-retirement",        min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
-  postRetirementGrowthMid:    { label: "Mid post-retirement",       min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
-  growthHigh:                 { label: "High pre-retirement",       min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
-  postRetirementGrowthHigh:   { label: "High post-retirement",      min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
-  definedBenefitGrowthRate:   { label: "DB growth rate",            min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  growthLow:                        { label: "Low pre-retirement",          min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  postRetirementGrowthLow:          { label: "Low post-retirement",         min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  growthMid:                        { label: "Mid pre-retirement",          min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  postRetirementGrowthMid:          { label: "Mid post-retirement",         min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  growthHigh:                       { label: "High pre-retirement",         min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  postRetirementGrowthHigh:         { label: "High post-retirement",        min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  partnerGrowthLow:                 { label: "Partner low pre-retirement",  min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  partnerPostRetirementGrowthLow:   { label: "Partner low post-retirement", min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  partnerGrowthMid:                 { label: "Partner mid pre-retirement",  min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  partnerPostRetirementGrowthMid:   { label: "Partner mid post-retirement", min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  partnerGrowthHigh:                { label: "Partner high pre-retirement", min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  partnerPostRetirementGrowthHigh:  { label: "Partner high post-retirement",min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  definedBenefitGrowthRate:         { label: "DB growth rate",              min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
   // Savings growth & interest rates (capped by maxGrowthRate, stored as decimal)
   personalBankInterestRate:       { label: "Bank interest",         min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
   personalIsaGrowthRate:          { label: "ISA growth",            min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },

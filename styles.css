@@ -346,6 +346,45 @@ body[data-app-view="optimiser"] .hero-actions {
   font-weight: 600;
   color: var(--text);
   letter-spacing: 0.01em;
+  padding-right: 28px;
+}
+
+.panel-collapse-btn {
+  position: absolute;
+  top: 13px;
+  right: 13px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 2;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+.panel-collapse-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0, 212, 184, 0.08);
+}
+.control-panel .panel.panel-collapsed > *:not(h2):not(.panel-collapse-btn),
+.results-panel .panel.panel-collapsed > *:not(.panel-heading):not(.panel-collapse-btn) {
+  display: none;
+}
+.control-panel .panel.panel-collapsed,
+.results-panel .panel.panel-collapsed {
+  overflow: visible;
+}
+.results-panel .panel.panel-collapsed .panel-heading > *:not(h2) {
+  display: none;
 }
 
 .field-grid {
@@ -380,6 +419,18 @@ body[data-app-view="optimiser"] .hero-actions {
 
 .optional-field-group[hidden] {
   display: none;
+}
+
+.pension-section-label {
+  grid-column: 1 / -1;
+  margin: 4px 0 2px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
 }
 
 .growth-rate-grid {
@@ -694,6 +745,9 @@ select option {
   align-items: baseline;
   margin-bottom: 12px;
 }
+.results-panel .panel-heading > :last-child {
+  margin-right: 22px;
+}
 
 .panel-heading h2,
 .panel-heading p {
@@ -785,6 +839,7 @@ select option {
   font-size: 0.78rem;
   font-family: inherit;
   cursor: pointer;
+  white-space: nowrap;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .chart-toggle-chip:hover {
@@ -820,6 +875,13 @@ select option {
 }
 #spending-chart-caption {
   display: none;
+}
+.chart-footer-caption {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 6px 0 0;
+  min-height: 1em;
 }
 
 .savings-preretire-toggle {
