@@ -14,7 +14,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">v5.0</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">v5.1</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme"></button>
               <div id="theme-panel" class="theme-panel">
                 <p class="theme-panel-title">Theme</p>
@@ -196,6 +196,30 @@
                 <label><span>DB initial annual amount</span><input data-field="definedBenefitInitialAnnualAmount" type="number" step="1000" /></label>
                 <label><span>DB max years</span><input data-field="definedBenefitMaxYears" type="number" step="1" min="1" /></label>
                 <label class="income-slider-field"><span>DB growth rate</span><input data-field="definedBenefitGrowthRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="definedBenefitGrowthRate" aria-label="Quick slider for DB growth rate">↕</button></label>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h2>Annuity</h2>
+            <div class="field-grid">
+              <label class="toggle"><span>Use annuity</span><input data-field="annuityEnabled" type="checkbox" /></label>
+              <div id="annuity-fields" class="optional-field-group" hidden>
+                <label class="income-slider-field"><span>Purchase year</span><input data-field="annuityPurchaseYear" type="number" step="1" /><button class="income-popup-btn" type="button" data-for="annuityPurchaseYear" aria-label="Quick slider for annuity purchase year">↕</button></label>
+                <label><span>Cost of annuity</span><input data-field="annuityCost" type="number" step="1000" /></label>
+                <label><span>Tax-free cash taken at purchase</span><input data-field="annuityTaxFreeCashTaken" type="number" step="1000" /></label>
+                <label class="income-slider-field"><span>Annuity rate</span><input data-field="annuityRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="annuityRate" aria-label="Quick slider for annuity rate">↕</button></label>
+                <label>
+                  <span>Escalation</span>
+                  <select data-field="annuityEscalationType">
+                    <option value="level">Level (no increase)</option>
+                    <option value="fixed">Fixed % increase</option>
+                    <option value="indexLinked">Index-linked (CPI)</option>
+                  </select>
+                </label>
+                <div id="annuity-fixed-escalation-fields" class="optional-field-group" hidden>
+                  <label class="income-slider-field"><span>Fixed escalation rate</span><input data-field="annuityFixedEscalationRate" data-format="percent-1" type="number" step="0.1" /><button class="income-popup-btn" type="button" data-for="annuityFixedEscalationRate" aria-label="Quick slider for annuity escalation rate">↕</button></label>
+                </div>
               </div>
             </div>
           </section>
