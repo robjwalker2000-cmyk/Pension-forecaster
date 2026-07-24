@@ -36,6 +36,13 @@ const DEFAULT_STATE = {
   definedBenefitInitialAnnualAmount: 0,
   definedBenefitMaxYears: 10,
   definedBenefitGrowthRate: 0.02,
+  annuityEnabled: false,
+  annuityPurchaseYear: CURRENT_YEAR + 10,
+  annuityCost: 0,
+  annuityTaxFreeCashTaken: 0,
+  annuityRate: 0.05,
+  annuityEscalationType: "level",
+  annuityFixedEscalationRate: 0.03,
   planYears: 25,
   planToAge: CURRENT_YEAR + 10 - 1971 + 24,
   planEndMode: "years",
@@ -166,6 +173,8 @@ const partnerDetailFields = document.getElementById("partner-detail-fields");
 const myPensionFields = document.getElementById("my-pension-fields");
 const partnerPensionFields = document.getElementById("partner-pension-fields");
 const partnerDbFields = document.getElementById("partner-db-fields");
+const annuityFields = document.getElementById("annuity-fields");
+const annuityFixedEscalationFields = document.getElementById("annuity-fixed-escalation-fields");
 const regularDrawdownFields = document.getElementById("regular-drawdown-fields");
 const yearOneTflsFields = document.getElementById("year-one-tfls-fields");
 const potChartCanvas = document.getElementById("pot-chart");
@@ -388,6 +397,13 @@ function normaliseState(source, changedKey = null) {
   next.partnerDefinedBenefitInitialAnnualAmount = Math.max(0, Number(next.partnerDefinedBenefitInitialAnnualAmount) || 0);
   next.partnerDefinedBenefitMaxYears = Math.max(1, Math.round(Number(next.partnerDefinedBenefitMaxYears) || 10));
   next.partnerDefinedBenefitGrowthRate = Math.max(0, Number(next.partnerDefinedBenefitGrowthRate) || 0.02);
+  if (next.annuityEnabled === undefined) next.annuityEnabled = false;
+  next.annuityPurchaseYear = Math.round(Number(next.annuityPurchaseYear) || (CURRENT_YEAR + 10));
+  next.annuityCost = Math.max(0, Number(next.annuityCost) || 0);
+  next.annuityTaxFreeCashTaken = Math.max(0, Number(next.annuityTaxFreeCashTaken) || 0);
+  next.annuityRate = Math.max(0, Number(next.annuityRate) || 0.05);
+  next.annuityEscalationType = ["level", "fixed", "indexLinked"].includes(next.annuityEscalationType) ? next.annuityEscalationType : "level";
+  next.annuityFixedEscalationRate = Math.max(0, Number(next.annuityFixedEscalationRate) || 0.03);
   next.specialEvents = Array.isArray(next.specialEvents) ? next.specialEvents.map((ev) => ({
     id: ev.id || (`evt_${Date.now()}_${Math.random()}`),
     yearType: ["relative", "absolute"].includes(ev.yearType) ? ev.yearType : "relative",
@@ -484,6 +500,8 @@ function applyUiState() {
   myPensionFields.hidden = !Boolean(state.myPensionEnabled);
   partnerPensionFields.hidden = !Boolean(state.partnerPensionEnabled);
   partnerDbFields.hidden = !Boolean(state.partnerDBEnabled);
+  annuityFields.hidden = !Boolean(state.annuityEnabled);
+  annuityFixedEscalationFields.hidden = state.annuityEscalationType !== "fixed";
   // Restore panel collapsed states
   try {
     document.querySelectorAll(".control-panel .panel, .results-panel .panel").forEach((panel) => {
@@ -1042,6 +1060,10 @@ function calculateProjection(source) {
   let crystallisedPot = retirementCrystallisedPot;
   let crystallisedToDate = retirementCrystallisedPot;
   let remainingLumpSumAllowance = remainingLumpSumAllowanceStart;
+  // Set once, in the purchase year, to whatever tax-free cash was actually available (capped by
+  // LSA at that point) — the ongoing annuity income calc below always reads this fixed value,
+  // rather than recomputing an LSA-unaware "requested" amount every year.
+  let annuityActualTaxFreeCashAtPurchase = 0;
   let isaSavingsBalance = personalIsaSavingsAtRetirement;
   let bankSavingsBalance = personalBankSavingsAtRetirement;
   let premiumBondsBalance = personalPremiumBondsAtRetirement;
@@ -1131,7 +1153,7 @@ function calculateProjection(source) {
       source.definedBenefitEnabled && calendarYear === source.definedBenefitStartYear
         ? Math.min(Math.max(0, source.definedBenefitInitialLumpSum), remainingLumpSumAllowance)
         : 0;
-    const lumpSumAllowanceAfterDefinedBenefit = Math.max(0, remainingLumpSumAllowance - definedBenefitLumpSum);
+    const lumpSumAllowanceAfterDefinedBenefitOnly = Math.max(0, remainingLumpSumAllowance - definedBenefitLumpSum);
 
     const partnerDBYearIndex = calendarYear - source.partnerDefinedBenefitStartYear;
     const partnerDefinedBenefitIncome = partnerDetailsEnabled && source.partnerDBEnabled
@@ -1142,13 +1164,46 @@ function calculateProjection(source) {
     const partnerDefinedBenefitLumpSum = partnerDetailsEnabled && source.partnerDBEnabled && calendarYear === source.partnerDefinedBenefitStartYear
       ? Math.max(0, source.partnerDefinedBenefitInitialLumpSum)
       : 0;
+    // Annuity: single-life, no guarantee period — pays every year from the purchase year
+    // to plan end (there's no mortality model, so "until death" just means "for the rest
+    // of the plan"), unlike DB income which is capped by a max-years term.
+    // Buying it crystallises the purchase amount: up to 25% can be taken as tax-free cash
+    // (capped by remaining LSA), and only the remainder actually funds the annuity income.
+    const annuityYearsSincePurchase = calendarYear - source.annuityPurchaseYear;
+    const annuityEscalationRate = source.annuityEscalationType === "fixed"
+      ? source.annuityFixedEscalationRate
+      : source.annuityEscalationType === "indexLinked"
+        ? source.cpiRate
+        : 0;
+    const annuityPurchaseThisYear = source.annuityEnabled && calendarYear === source.annuityPurchaseYear
+      ? Math.min(uncrystallisedPot, source.annuityCost)
+      : 0;
+    // Actual tax-free cash paid at purchase, capped by what's really available: the requested
+    // amount, 25% of the amount actually crystallised (in case the pot couldn't cover the full
+    // request), and whatever LSA is left after the DB lump sum.
+    const annuityTaxFreeCash = source.annuityEnabled && calendarYear === source.annuityPurchaseYear
+      ? Math.min(
+          Math.max(0, Number(source.annuityTaxFreeCashTaken) || 0),
+          annuityPurchaseThisYear * 0.25,
+          lumpSumAllowanceAfterDefinedBenefitOnly,
+        )
+      : 0;
+    const lumpSumAllowanceAfterDefinedBenefit = Math.max(0, lumpSumAllowanceAfterDefinedBenefitOnly - annuityTaxFreeCash);
+    // Remember the actual (LSA-clamped) tax-free cash from the purchase year so every
+    // subsequent year's income calc uses the true funded amount, not a recomputed guess.
+    if (calendarYear === source.annuityPurchaseYear) {
+      annuityActualTaxFreeCashAtPurchase = annuityTaxFreeCash;
+    }
+    const annuityIncome = source.annuityEnabled && annuityYearsSincePurchase >= 0
+      ? compoundAnnual((source.annuityCost - annuityActualTaxFreeCashAtPurchase) * source.annuityRate, annuityEscalationRate, annuityYearsSincePurchase, true)
+      : 0;
     const partnerHasRetired = partnerPensionEnabled && calendarYear >= partnerRetirementYear;
     // Income available from all sources except DC pension pots
     const baseIncomeExcDCPots = partnerWorkIncome + partnerStatePension
       + ownStatePension + definedBenefitIncome + exceptionalTaxableIncome
-      + exceptionalNonTaxableIncome
+      + exceptionalNonTaxableIncome + annuityIncome
       + partnerDefinedBenefitIncome + partnerDefinedBenefitLumpSum;
-    const totalShortfallExcDCPots = Math.max(0, totalIncomeRequired - baseIncomeExcDCPots - definedBenefitLumpSum);
+    const totalShortfallExcDCPots = Math.max(0, totalIncomeRequired - baseIncomeExcDCPots - definedBenefitLumpSum - annuityTaxFreeCash);
     const partnerPotPreDrawdown = partnerPotBalance; // opening balance (used for chart peak alignment)
     // Proportional drawdown: when both DC pots are in drawdown, each pot takes a share of the
     // income shortfall proportional to its size relative to the combined pots. The larger pot
@@ -1161,13 +1216,13 @@ function calculateProjection(source) {
       : 0;
 
     const partnerIncome = partnerWorkIncome;
-    const myOtherIncome = ownStatePension + definedBenefitIncome + exceptionalTaxableIncome;
+    const myOtherIncome = ownStatePension + definedBenefitIncome + annuityIncome + exceptionalTaxableIncome;
     const regularDrawdown =
       source.regularDrawdownEnabled && yearIndex <= source.regularDrawdownYears
         ? source.regularDrawdownAmount
         : 0;
     const baseIncomeTotal = partnerWorkIncome + partnerStatePension + myOtherIncome + exceptionalNonTaxableIncome + partnerPotDrawdown + partnerDefinedBenefitIncome + partnerDefinedBenefitLumpSum;
-    const pensionNeededGross = Math.max(0, totalIncomeRequired - baseIncomeTotal - definedBenefitLumpSum);
+    const pensionNeededGross = Math.max(0, totalIncomeRequired - baseIncomeTotal - definedBenefitLumpSum - annuityTaxFreeCash);
     const allowanceBase = compoundAnnual(UK_TAX_RULES.personalAllowance, source.taxAllowanceCpiRate, yearIndex, source.applyTaxAllowanceCpi);
     const taxRules = taxRulesForYear(source, calendarYear);
     const isaInterestGross = isaSavingsBalance * source.personalIsaGrowthRate;
@@ -1306,7 +1361,7 @@ function calculateProjection(source) {
     savingsAllocation.isaSavingsUsed   += carFromSavingsAlloc.fromIsa;
     savingsAllocation.bankSavingsUsed  += carFromSavingsAlloc.fromBk;
     sourcedFromSavings += carFromSavingsAlloc.carCoveredBySavings;
-    let incomeTotal = baseIncomeTotal + definedBenefitLumpSum + taxFreeCashActual;
+    let incomeTotal = baseIncomeTotal + definedBenefitLumpSum + annuityTaxFreeCash + taxFreeCashActual;
     let incomeCovered = incomeTotal + totalTaxableWithdrawal + sourcedFromSavings;
     let taxFreeCashExemptFromPairing = Math.min(taxFreeCashActual, forcedTaxFreeCash);
 
@@ -1423,7 +1478,7 @@ function calculateProjection(source) {
     const incomeCoveredReconciled = excessNet + estimatedTax + householdBills + holidays;
 
     const totalDesignated = designatedForTaxFree + extraDesignationForTaxable;
-    const crystallisedToDateCurrent = crystallisedToDate + designatedForTaxFree;
+    const crystallisedToDateCurrent = crystallisedToDate + designatedForTaxFree + annuityPurchaseThisYear;
     const openingPot = uncrystallisedPot + crystallisedPot;
     const openingUncrystallisedPot = uncrystallisedPot;
     const openingCrystallisedFund = crystallisedPot;
@@ -1431,9 +1486,9 @@ function calculateProjection(source) {
     const openingBankSavings = bankSavingsBalance;
     const openingPremiumBonds = premiumBondsBalance;
     const openingPartnerSavings = partnerSavingsBalance;
-    const uncrystallisedBeforeGrowth = Math.max(0, uncrystallisedPot - totalDesignated);
+    const uncrystallisedBeforeGrowth = Math.max(0, uncrystallisedPot - totalDesignated - annuityPurchaseThisYear);
     const crystallisedBeforeGrowth = Math.max(0, crystallisedPot + newCrystallisedFromTaxFree + extraDesignationForTaxable - totalTaxableWithdrawal);
-    const totalWithdrawn = taxFreeCashActual + totalTaxableWithdrawal;
+    const totalWithdrawn = taxFreeCashActual + totalTaxableWithdrawal + annuityPurchaseThisYear;
     const totalPotBeforeGrowth = Math.max(0, openingPot - totalWithdrawn);
 
     const uncrystallisedAfterGrowth = source.applyPotGrowth
@@ -1446,7 +1501,7 @@ function calculateProjection(source) {
     const growth = totalPotAfterGrowth - totalPotBeforeGrowth;
     const potChange = growth - totalWithdrawn;
 
-    remainingLumpSumAllowance = Math.max(0, remainingLumpSumAllowance - definedBenefitLumpSum - taxFreeCashActual);
+    remainingLumpSumAllowance = Math.max(0, remainingLumpSumAllowance - definedBenefitLumpSum - annuityTaxFreeCash - taxFreeCashActual);
     bankSavingsBalance = Math.max(0, bankSavingsBalance + bankInterestGross - bankInterestTaxBreakdown.bankInterestTax - savingsAllocation.bankSavingsUsed);
     const premiumBondsBeforeLimit = Math.max(0, premiumBondsBalance + premiumBondsGrowth - savingsAllocation.premiumBondsUsed);
     const premiumBondsMovedToIsa = Math.max(0, premiumBondsBeforeLimit - UK_TAX_RULES.premiumBondsLimit);
@@ -1492,6 +1547,8 @@ function calculateProjection(source) {
       ownStatePension,
       definedBenefitIncome,
       definedBenefitLumpSum,
+      annuityIncome,
+      annuityTaxFreeCash,
       pensionNeededGross,
       regularDrawdown,
       taxFreeCash: taxFreeCashActual,
@@ -1893,7 +1950,8 @@ function renderSummary(projection) {
     : 0;
   const totalPensionTflsTaken = projection.rows.reduce((sum, row) => sum + row.taxFreeCash, 0);
   const totalDefinedBenefitLumpSum = projection.rows.reduce((sum, row) => sum + row.definedBenefitLumpSum, 0);
-  const totalTflsTaken = totalPensionTflsTaken + totalDefinedBenefitLumpSum;
+  const totalAnnuityTaxFreeCash = projection.rows.reduce((sum, row) => sum + row.annuityTaxFreeCash, 0);
+  const totalTflsTaken = totalPensionTflsTaken + totalDefinedBenefitLumpSum + totalAnnuityTaxFreeCash;
   const totalPlanShortfall = projection.rows.reduce((sum, row) => sum + row.incomeShortfall, 0);
   const cards = [
     // ── Row 1: Plan overview + savings at retirement ─────────────────────────
@@ -1987,7 +2045,7 @@ function renderSummary(projection) {
     {
       label: "Tax-free lump sums",
       value: formatCurrency(totalTflsTaken),
-      note: `Pension ${formatCurrency(totalPensionTflsTaken)}, DB ${formatCurrency(totalDefinedBenefitLumpSum)} · LSA left ${formatCurrency(lastRow?.remainingLumpSumAllowance ?? projection.remainingLumpSumAllowanceStart)} (was ${formatCurrency(projection.remainingLumpSumAllowanceStart)})`,
+      note: `Pension ${formatCurrency(totalPensionTflsTaken)}, DB ${formatCurrency(totalDefinedBenefitLumpSum)}, Annuity ${formatCurrency(totalAnnuityTaxFreeCash)} · LSA left ${formatCurrency(lastRow?.remainingLumpSumAllowance ?? projection.remainingLumpSumAllowanceStart)} (was ${formatCurrency(projection.remainingLumpSumAllowanceStart)})`,
     },
   ];
 
@@ -2096,6 +2154,8 @@ function getTableColumnSets() {
     ["partnerStatePension", "Partner state pension"],
     ["definedBenefitIncome", "My DB pension"],
     ["definedBenefitLumpSum", "My DB lump sum"],
+    ["annuityIncome", "Annuity income"],
+    ["annuityTaxFreeCash", "Annuity TFLS"],
     ["partnerDefinedBenefitIncome", "Partner DB pension"],
     ["partnerDefinedBenefitLumpSum", "Partner DB lump sum"],
     ["partnerPotDrawdown", "Partner DC pension"],
@@ -2135,6 +2195,8 @@ function getTableColumnSets() {
     ["ownStatePension", "My state pension"],
     ["definedBenefitIncome", "My DB pension"],
     ["definedBenefitLumpSum", "My DB lump sum"],
+    ["annuityIncome", "Annuity income"],
+    ["annuityTaxFreeCash", "Annuity TFLS"],
     ["partnerDefinedBenefitIncome", "Partner DB pension"],
     ["partnerDefinedBenefitLumpSum", "Partner DB lump sum"],
     ["partnerPotDrawdown", "Partner DC pension"],
@@ -2170,6 +2232,8 @@ function getTableColumnSets() {
     "ownStatePension",
     "definedBenefitIncome",
     "definedBenefitLumpSum",
+    "annuityIncome",
+    "annuityTaxFreeCash",
     "partnerDefinedBenefitIncome",
     "partnerDefinedBenefitLumpSum",
     "partnerPotDrawdown",
@@ -2389,6 +2453,8 @@ function getColumnCalculationNote(key, label) {
     ownStatePension: "Your share of the state pension, compounded from today's value at the shared state pension growth rate.",
     definedBenefitIncome: 'Inflexible defined benefit income, starting in the selected year, growing annually, and included in your taxable income before flexible drawdown is optimised.',
     definedBenefitLumpSum: 'Tax-free defined benefit lump sum in the DB start year. It reduces remaining lump sum allowance before flexible TFLS is calculated.',
+    annuityIncome: 'Guaranteed single-life annuity income: (annuity cost - tax-free cash taken) x annuity rate at purchase, escalating annually per the chosen option (level, fixed %, or CPI-linked). Runs from the purchase year to plan end, and is taxable income like other pension income.',
+    annuityTaxFreeCash: 'Tax-free cash taken when the annuity is purchased, capped at 25% of the amount crystallised and by remaining LSA. Reduces the amount that actually funds the annuity income, and counts against your lump sum allowance like any other TFLS.',
     partnerDefinedBenefitIncome: "Partner's fixed defined benefit income — starts in the configured year, grows at the DB growth rate, and contributes to household income automatically.",
     partnerDefinedBenefitLumpSum: "Partner's DB lump sum in the DB start year.",
     partnerPotDrawdown: "Amortised annual drawdown from the partner's DC pension pot, spread evenly over the remaining plan years with pot growth applied.",
@@ -3459,6 +3525,8 @@ function renderStackedIncomeChartCanvas({ canvas, projection, hoverX = null }) {
     { key: "ownStatePension",        label: "My state pension",         color: "#0f766e" },
     { key: "definedBenefitIncome",          label: "My DB pension",         color: "#0891b2" },
     { key: "definedBenefitLumpSum",         label: "My DB lump sum",        color: "#06b6d4" },
+    { key: "annuityIncome",                 label: "Annuity income",        color: "#6366f1" },
+    { key: "annuityTaxFreeCash",            label: "Annuity TFLS",          color: "#818cf8" },
     { key: "partnerDefinedBenefitIncome",   label: "Partner DB pension",    color: "#f97316" },
     { key: "partnerDefinedBenefitLumpSum",  label: "Partner DB lump sum",   color: "#fdba74" },
     { key: "partnerPotDrawdown",            label: "Partner DC pension",    color: "#22d3ee" },
@@ -3909,6 +3977,8 @@ function buildCurrentPlanExport() {
         { key: "ownStatePension", label: "My state pension" },
         { key: "definedBenefitIncome", label: "My DB pension" },
         { key: "definedBenefitLumpSum", label: "DB lump sum" },
+        { key: "annuityIncome", label: "Annuity income" },
+        { key: "annuityTaxFreeCash", label: "Annuity TFLS" },
         { key: "taxFreeCash", label: "TFLS" },
         { key: "grossPensionWithdrawal", label: "Taxable pension withdrawn" },
         { key: "sourcedFromSavings", label: "Sourced from savings" },
@@ -4755,6 +4825,9 @@ function formatSliderValue(cfg, value) {
   if (cfg.format === "number") {
     return `${NUMBER.format(value)}${cfg.unit ? " " + cfg.unit : ""}`;
   }
+  if (cfg.format === "year") {
+    return String(Math.round(value));
+  }
   return formatCurrency(value);
 }
 
@@ -4807,6 +4880,9 @@ const INCOME_SLIDER_CONFIG = {
   partnerGrowthHigh:                { label: "Partner high pre-retirement", min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
   partnerPostRetirementGrowthHigh:  { label: "Partner high post-retirement",min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
   definedBenefitGrowthRate:         { label: "DB growth rate",              min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  annuityRate:                      { label: "Annuity rate",                min: 0, max: 0.15, step: 0.005, format: "percent" },
+  annuityFixedEscalationRate:       { label: "Annuity escalation rate",     min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
+  annuityPurchaseYear:              { label: "Annuity purchase year",       min: () => state.retirementYear, max: () => state.retirementYear + 30, step: 1, format: "year" },
   // Savings growth & interest rates (capped by maxGrowthRate, stored as decimal)
   personalBankInterestRate:       { label: "Bank interest",         min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
   personalIsaGrowthRate:          { label: "ISA growth",            min: 0, max: () => state.maxGrowthRate, step: 0.005, format: "percent" },
