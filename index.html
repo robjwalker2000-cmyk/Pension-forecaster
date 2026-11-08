@@ -14,7 +14,7 @@
           <div class="title-row">
             <h1>Pension Forecaster</h1>
             <div class="version-badge-group">
-              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">v5.1</button>
+              <button id="version-badge" class="version-badge" type="button" aria-label="Show last change date">v5.2</button>
               <button id="theme-settings-button" class="theme-settings-button" type="button" aria-label="Customise theme" title="Customise theme"></button>
               <div id="theme-panel" class="theme-panel">
                 <p class="theme-panel-title">Theme</p>
@@ -111,6 +111,7 @@
                 <label class="io-menu-item" for="import-file">Import plan</label>
                 <input id="import-file" type="file" accept=".csv,.json" hidden />
                 <button id="export-plan-button" class="io-menu-item" type="button">Export plan</button>
+                <button id="export-csv-button" class="io-menu-item" type="button">Export CSV</button>
                 <button id="export-table-button" class="io-menu-item" type="button">Export table</button>
                 <button id="export-formula-button" class="io-menu-item" type="button">Export formulas</button>
                 <button id="export-pdf-button" class="io-menu-item" type="button">Export PDF</button>
@@ -423,6 +424,19 @@
             </div>
             <div class="chart-frame" id="spending-chart-wrap">
               <canvas id="spending-chart" width="900" height="280"></canvas>
+            </div>
+          </section>
+
+          <section class="panel table-panel" id="pre-retirement-table-section">
+            <div class="panel-heading">
+              <h2>Pre-retirement Details</h2>
+              <p id="pre-retirement-table-caption"></p>
+            </div>
+            <div class="table-wrap" id="pre-retirement-table-wrap">
+              <table>
+                <thead id="pre-retirement-table-head"></thead>
+                <tbody id="pre-retirement-table-body"></tbody>
+              </table>
             </div>
           </section>
 

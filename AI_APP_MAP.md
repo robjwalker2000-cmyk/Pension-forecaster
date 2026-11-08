@@ -12,7 +12,9 @@ Working now:
 - User inputs update the forecast live.
 - Projection table supports summary, detailed, granular, and custom views.
 - Charts show spending and income/drawdown composition.
-- Plan data can be imported/exported as JSON, exported to Excel-style tables/formula workbooks, exported to PDF, and shared by URL.
+- Plan data can be imported/exported as JSON, exported/imported as a flat CSV (`field,value` rows), exported to Excel-style tables/formula workbooks, exported to PDF, and shared by URL.
+- **Pension contribution special events** (v5.2): a special event with routing **Pen Contrib** is a one-off gross contribution into the personal uncrystallised pot, dated by year + month. See §7.
+- **Pre-retirement Details** panel (v5.2): a table above the Detailed Breakdown showing each year from today to retirement (pot, partner pot, ISA/bank/Premium Bonds/partner savings, event titles). Skipped when the panel is collapsed.
 - Optimiser reads the current forecaster plan through `postMessage`; it no longer requires importing a separate exported plan file when used inside this app.
 - Five themes: Classic (warm parchment), Bright (dark amber/fire), Dark (deep navy), Metal (brushed steel), Custom (hue sliders).
 - Background photo layer (`background.jpeg`) displayed via `body::before`; mode and opacity controlled by the theme panel (Photo / Soft / Vivid / Plain).
@@ -71,11 +73,11 @@ Key libraries:
 - Optionally enable partner details and partner income/savings assumptions.
 - Configure personal tax assumptions: state pension, tax allowance CPI, tax band CPI.
 - Configure drawdown behaviour: regular drawdown, year 1 TFLS, TFLS by 75, maximise drawdown, force 25/75 pairing.
-- Add exceptional income/expense events and route them through drawdown or savings.
+- Add exceptional income/expense events and route them through drawdown, savings, or straight into the pension (**Pen Contrib**, with a start month).
 - View summary tiles, spending chart, income chart, and projection table.
 - Switch to Optimiser to review the current plan through optimiser summary tiles and projection charts without importing anything.
 - Switch table views or choose custom fields.
-- Import a plan, export a plan, export visible table, export formula workbook, export PDF, or create a share link.
+- Import a plan (JSON or CSV), export a plan, export CSV, export visible table, export formula workbook, export PDF, or create a share link.
 
 ## 6. Data model
 
@@ -90,7 +92,7 @@ Key state groups:
 - Partner DC pension: `partnerPensionEnabled`, `partnerCurrentPot`, `partnerCurrentCrystallisedPot`, `partnerLumpSumAllowanceUsed`. Growth scenario: `partnerScenario` (1=Low, 2=Mid, 3=High), pre-retirement rates `partnerGrowthLow/Mid/High`, post-retirement rates `partnerPostRetirementGrowthLow/Mid/High`. Partner DB: `partnerDefinedBenefitEnabled`, `partnerDefinedBenefitIncome`, `partnerDefinedBenefitLumpSum`.
 - Tax: own state pension, state pension growth, tax allowance CPI, tax band CPI rate/frequency/start year.
 - Drawdown: regular drawdown, tax optimisation mode, TFLS by 75, maximise basic-rate drawdown, force 25/75 pairing, year-one TFLS settings.
-- Events: user-added exceptional income/expense items with amount, timing, taxable flag, and routing.
+- Events (`specialEvents[]`): user-added items with `id`, `yearType` (`relative` | `absolute`), `year`, `month` (1–12, added v5.2; only used for `routing: "pension"`), `type` (`expense` | `income`), `amount`, `taxable`, `routing` (`drawdown` | `savings` | `pension`), `title`.
 - UI state: table view, selected custom fields, granular toggles, panel visibility, chart modes.
 - Theme state: active theme (`original` | `bright` | `dark` | `metallic` | `custom`), custom hue sliders (bgHue, tileHue, canvasHue, textHue), background mode (`photo` | `soft` | `vivid` | `plain`), panel transparency value (20–100), panel blur value (0–24). All persisted to `localStorage` under `pension-forecaster-theme-v1`.
 - Optimiser integration state is transient: the parent app posts the current plan export and selected theme variables into the iframe after render, theme changes, and iframe load.
@@ -112,7 +114,17 @@ Projection output is created by `calculateProjection(source)` and returns derive
 - Maximise drawdown aims to use available basic-rate band and preserve savings, subject to pot and TFLS constraints.
 - Savings are allocated in defined order where relevant, with ISA and Premium Bonds treated as tax-free growth/prizes and bank interest subject to PSA/tax.
 - Import should preserve known fields and tolerate older saved/exported formats where practical.
+- CSV export (`exportState()`) writes one `field,value` row per state key; arrays/objects such as `specialEvents` are `JSON.stringify`'d, and `importState()` JSON-parses any CSV value starting with `[` or `{`. Older CSVs where those cells read `[object Object]` cannot be recovered.
 - Export plan JSON should remain backward-compatible for downstream tools; do not rename or remove existing fields without user agreement.
+
+### Pension contribution events (implemented, v5.2)
+
+A special event with `routing: "pension"` is a one-off extra contribution to the **personal uncrystallised** pot. Routing alone decides this: Expense/Income and Taxable are ignored for it (picking Pen Contrib in the UI flips Type to Income for display only). It is excluded from every household income/expense bucket (`exceptionalExpense`, `exceptionalTaxableIncome`, etc.), so it never reduces or funds that year's spending.
+
+- **Pre-retirement** (only `yearType: "absolute"` events with `year < retirementYear`, and only when `myPensionEnabled`): `growOneOffPensionContribution()` grows the amount from its month/year using the same tapered pre-retirement rate schedule as the main pot. The first calendar year is prorated by month (contributed at the start of that month, `13 - month` months of growth); later years compound 12 months. `sumOneOffPensionContributions(targetYear)` totals these and is added to `retirementUncrystallisedPot` and to each `prePotSnapshot` row.
+- **Post-retirement**: events matching that loop year sum to `exceptionalPensionContribution`, which is added to `uncrystallisedBeforeGrowth` and `totalPotBeforeGrowth` (so it then grows that year). It is exposed as a table column "Extra pension contribution" (`exceptionalPensionContribution`) in the granular/custom column sets.
+- Relative-year events with `routing: "pension"` are not picked up by the pre-retirement path; only absolute years are.
+- Month is not used post-retirement (growth there is annual).
 
 ### Partner DC pension rules (implemented)
 
@@ -249,11 +261,14 @@ Deploy `index.html`, `styles.css`, `app.js`, `optimizer-embedded.html`, `optimiz
 | `growthRateForScenario(source, phase)` | Personal DC growth rate for `"pre"` or `"post"` retirement. |
 | `growthRateForPartnerScenario(source, phase)` | Partner DC growth rate, parallel to above. Uses `partnerScenario` + `partnerGrowthLow/Mid/High` / `partnerPostRetirement*`. |
 | `taperedPreRetirementGrowth(base, preRate, postRate, years, enabled)` | Compounds a pot over `years` with optional taper from pre to post rate. Used to project personal and partner pots to personal retirement year. |
-| `normaliseState()` | Clamp, default, and migrate all state fields. Must be updated when new state fields are added. |
+| `normaliseState()` | Clamp, default, and migrate all state fields (including `specialEvents[].month` and the `pension` routing). Must be updated when new state fields are added. |
+| `growOneOffPensionContribution(amount, eventYear, eventMonth, targetYear, currentYear, yearsToRetirement, preRate, postRate, taperEnabled)` | Grows a pre-retirement "Pen Contrib" event to `targetYear`, prorating its first year by month. |
+| `renderPreRetirementTable(projection)` | Fills the Pre-retirement Details table from `projection.preRetirementRows` using `PRE_RETIREMENT_COLUMNS`. |
+| `exportState()` / `importState()` | CSV (`field,value`) export/import; object/array values round-trip as JSON. |
 
 ### Partner DC — things that are easy to break
 
 - `partnerRetirementPot` is grown to **personal** retirement year (`yearsToRetirement`) not partner's. The post-retirement loop grows it further to the partner retirement year in the `else` branch (`!partnerHasRetired`). Do not change both calculations without understanding this split.
 - `partnerPotBalance` is updated at the **end** of each loop iteration (after the row push). At the top of the loop it holds the opening balance for the current year.
 - `partnerPotForChart = calendarYear === partnerRetirementYear ? partnerPotPreDrawdown : partnerPotBalance` — the chart shows the pre-drawdown value on the partner's retirement year to align the visual peak with the marker. Do not remove this.
-- The proportional drawdown fraction uses `uncrystallisedPot + crystallisedPot` as the personal pot opening balance. These are assigned at lines 1541–1542 and always reflect the start-of-year balance at the top of the loop.
+- The proportional drawdown fraction uses `uncrystallisedPot + crystallisedPot` as the personal pot opening balance. These are assigned just before `openingPot` is computed in the year loop and always reflect the start-of-year balance at the top of the loop.

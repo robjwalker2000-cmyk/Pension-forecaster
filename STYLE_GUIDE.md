@@ -52,7 +52,7 @@ function syncOptimiserTheme() {
 `styles.css` loads after `mini-core.css` and contains only app-specific overrides. Key selectors:
 
 - `.income-vslider` — vertical range slider for income inputs
-- `.special-events-panel` — collapsible event timeline
+- `.special-events-panel` — collapsible event timeline; `.event-row` is a 9-column grid (Year type, Year, Month, Type, Amount, Routing, Taxable, Title, actions), `min-width: 880px`
 - `.optimiser-section` — iframe wrapper with sizing
 - `.sticky-column` — pinned first column in projection table
 - `body[data-app-view="optimiser"]` — hides forecaster UI when optimiser is shown

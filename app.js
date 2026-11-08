@@ -167,6 +167,9 @@ const summaryGrid = document.getElementById("summary-grid");
 const summaryTemplate = document.getElementById("summary-card-template");
 const projectionHead = document.getElementById("projection-head");
 const projectionBody = document.getElementById("projection-body");
+const preRetirementTableHead = document.getElementById("pre-retirement-table-head");
+const preRetirementTableBody = document.getElementById("pre-retirement-table-body");
+const preRetirementTableCaption = document.getElementById("pre-retirement-table-caption");
 const definedBenefitFields = document.getElementById("defined-benefit-fields");
 const savingsFields = document.getElementById("savings-fields");
 const partnerDetailFields = document.getElementById("partner-detail-fields");
@@ -189,6 +192,7 @@ const exportTableButton = document.getElementById("export-table-button");
 const exportFormulaButton = document.getElementById("export-formula-button");
 const exportPdfButton = document.getElementById("export-pdf-button");
 const exportPlanButton = document.getElementById("export-plan-button");
+const exportCsvButton = document.getElementById("export-csv-button");
 const resetButton = document.getElementById("reset-button");
 const importFile = document.getElementById("import-file");
 const appViewsTrack = document.getElementById("app-views-track");
@@ -408,10 +412,11 @@ function normaliseState(source, changedKey = null) {
     id: ev.id || (`evt_${Date.now()}_${Math.random()}`),
     yearType: ["relative", "absolute"].includes(ev.yearType) ? ev.yearType : "relative",
     year: Math.max(1, Math.round(Number(ev.year) || 1)),
+    month: Math.min(12, Math.max(1, Math.round(Number(ev.month) || 1))),
     type: ["expense", "income"].includes(ev.type) ? ev.type : "expense",
     amount: Math.max(0, Number(ev.amount) || 0),
     taxable: Boolean(ev.taxable),
-    routing: ["drawdown", "savings"].includes(ev.routing) ? ev.routing : "drawdown",
+    routing: ["drawdown", "savings", "pension"].includes(ev.routing) ? ev.routing : "drawdown",
     title: String(ev.title || ""),
   })) : [];
   return next;
@@ -574,6 +579,28 @@ function taperedPreRetirementGrowth(base, preRate, postRate, yearsToRetirement, 
       const annuityFactor = monthlyRate === 0 ? 12 : (growthFactor - 1) / monthlyRate;
       value += monthlyContribution * annuityFactor;
     }
+  }
+  return value;
+}
+
+// Grows a one-off pension contribution (a "pension" routed special event) from its purchase
+// month/year forward, using the same tapered pre-retirement rate schedule as the main pot so it
+// blends in as if it had always been part of it. The first calendar year is prorated by month
+// (contributed at the start of that month, growing for the rest of the year); every full year
+// after that compounds for all 12 months.
+function growOneOffPensionContribution(amount, eventYear, eventMonth, targetYear, currentYear, yearsToRetirement, preRate, postRate, taperEnabled) {
+  if (amount <= 0 || targetYear < eventYear) return 0;
+  const rateForYear = (calYear) => {
+    if (!taperEnabled || yearsToRetirement <= 1) return preRate;
+    const y = calYear - currentYear;
+    const t = Math.min(1, Math.max(0, y / (yearsToRetirement - 1)));
+    return preRate + (postRate - preRate) * t;
+  };
+  const month = Math.min(12, Math.max(1, Math.round(eventMonth) || 1));
+  const monthsInFirstYear = 13 - month;
+  let value = amount * Math.pow(1 + rateForYear(eventYear) / 12, monthsInFirstYear);
+  for (let calYear = eventYear + 1; calYear <= targetYear; calYear++) {
+    value *= Math.pow(1 + rateForYear(calYear) / 12, 12);
   }
   return value;
 }
@@ -942,8 +969,27 @@ function calculateProjection(source) {
   const currentUncrystallisedPot = Math.max(0, effectivePot - effectiveCrystallisedPot);
   const personalMonthlyContribution = myPensionEnabled ? Math.max(0, Number(source.personalMonthlyContribution) || 0) : 0;
   const partnerMonthlyContribution = partnerPensionEnabled ? Math.max(0, Number(source.partnerMonthlyContribution) || 0) : 0;
+  // One-off "pension contribution" special events (pre-retirement only — a post-retirement one is
+  // added straight into the drawdown pot year-by-year instead, see eventsThisYear below).
+  // Routing alone decides this — Expense vs Income on the row is irrelevant once "Pen Contrib" is picked.
+  const pensionContributionEvents = myPensionEnabled
+    ? (source.specialEvents || []).filter((ev) =>
+        ev.routing === "pension" && ev.yearType === "absolute" && Number(ev.year) < retirementYear)
+    : [];
+  const sumOneOffPensionContributions = (targetYear) => pensionContributionEvents.reduce((sum, ev) => sum + growOneOffPensionContribution(
+    Math.max(0, Number(ev.amount) || 0),
+    Number(ev.year),
+    Number(ev.month) || 1,
+    targetYear,
+    source.currentYear,
+    yearsToRetirement,
+    preRetirementGrowthRate,
+    postRetirementGrowthRate,
+    Boolean(source.taperPreRetirementGrowth),
+  ), 0);
   // Contributions build up the uncrystallised pot only (new money can't land in an already-crystallised pot).
-  const retirementUncrystallisedPot = taperedPreRetirementGrowth(currentUncrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth, personalMonthlyContribution);
+  const retirementUncrystallisedPot = taperedPreRetirementGrowth(currentUncrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth, personalMonthlyContribution)
+    + sumOneOffPensionContributions(retirementYear);
   const retirementCrystallisedPot = taperedPreRetirementGrowth(effectiveCrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, yearsToRetirement, source.taperPreRetirementGrowth);
 
   // Effective equivalent flat rate that produces the same tapered result — investment growth only,
@@ -1019,7 +1065,8 @@ function calculateProjection(source) {
     // Split into uncrystallised/crystallised so contributions only build up the uncrystallised side.
     const prePotSnapshot =
       taperedPreRetirementGrowth(currentUncrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, i, source.taperPreRetirementGrowth, personalMonthlyContribution)
-      + taperedPreRetirementGrowth(effectiveCrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, i, source.taperPreRetirementGrowth);
+      + taperedPreRetirementGrowth(effectiveCrystallisedPot, preRetirementGrowthRate, postRetirementGrowthRate, i, source.taperPreRetirementGrowth)
+      + sumOneOffPensionContributions(calYear);
     const prePartnerPotSnapshot = partnerPensionEnabled
       ? taperedPreRetirementGrowth(partnerUncrystallisedAtStart, partnerPreRetirementGrowthRate, partnerPostRetirementGrowthRate, i, false, partnerMonthlyContribution, Math.min(yearsToPartnerRetirement, i))
         + taperedPreRetirementGrowth(partnerCrystallisedAtStart, partnerPreRetirementGrowthRate, partnerPostRetirementGrowthRate, i, false)
@@ -1097,19 +1144,26 @@ function calculateProjection(source) {
       ev.yearType === "relative" ? yearIndex === Number(ev.year) : calendarYear === Number(ev.year)
     );
     const exceptionalExpense = eventsThisYear
-      .filter((ev) => ev.type === "expense" && ev.routing !== "savings")
+      .filter((ev) => ev.type === "expense" && ev.routing !== "savings" && ev.routing !== "pension")
       .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
     const exceptionalNonTaxableIncome = eventsThisYear
-      .filter((ev) => ev.type === "income" && !ev.taxable && ev.routing !== "savings")
+      .filter((ev) => ev.type === "income" && !ev.taxable && ev.routing !== "savings" && ev.routing !== "pension")
       .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
     const exceptionalTaxableIncome = eventsThisYear
-      .filter((ev) => ev.type === "income" && ev.taxable && ev.routing !== "savings")
+      .filter((ev) => ev.type === "income" && ev.taxable && ev.routing !== "savings" && ev.routing !== "pension")
       .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
     const exceptionalSavingsIncome = eventsThisYear
       .filter((ev) => ev.type === "income" && ev.routing === "savings")
       .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
     const exceptionalSavingsExpense = eventsThisYear
       .filter((ev) => ev.type === "expense" && ev.routing === "savings")
+      .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
+    // A "pension" routed event is a one-off extra contribution: it goes straight into the
+    // uncrystallised pot (see uncrystallisedBeforeGrowth below), not household income — it's not
+    // available to cover this year's spending, same principle as the recurring monthly contribution.
+    // Routing alone decides this — Expense vs Income on the row is irrelevant once "Pen Contrib" is picked.
+    const exceptionalPensionContribution = eventsThisYear
+      .filter((ev) => ev.routing === "pension")
       .reduce((s, ev) => s + Math.max(0, Number(ev.amount) || 0), 0);
     // If "use savings for car" is on, draw car cost from personal savings first
     // (Premium Bonds → ISA → Bank — most tax-efficient order), remainder falls to income
@@ -1486,10 +1540,10 @@ function calculateProjection(source) {
     const openingBankSavings = bankSavingsBalance;
     const openingPremiumBonds = premiumBondsBalance;
     const openingPartnerSavings = partnerSavingsBalance;
-    const uncrystallisedBeforeGrowth = Math.max(0, uncrystallisedPot - totalDesignated - annuityPurchaseThisYear);
+    const uncrystallisedBeforeGrowth = Math.max(0, uncrystallisedPot - totalDesignated - annuityPurchaseThisYear + exceptionalPensionContribution);
     const crystallisedBeforeGrowth = Math.max(0, crystallisedPot + newCrystallisedFromTaxFree + extraDesignationForTaxable - totalTaxableWithdrawal);
     const totalWithdrawn = taxFreeCashActual + totalTaxableWithdrawal + annuityPurchaseThisYear;
-    const totalPotBeforeGrowth = Math.max(0, openingPot - totalWithdrawn);
+    const totalPotBeforeGrowth = Math.max(0, openingPot - totalWithdrawn + exceptionalPensionContribution);
 
     const uncrystallisedAfterGrowth = source.applyPotGrowth
       ? compoundAnnual(uncrystallisedBeforeGrowth, postRetirementGrowthRate, 1, true)
@@ -1624,6 +1678,7 @@ function calculateProjection(source) {
       exceptionalTaxableIncome,
       exceptionalSavingsIncome,
       exceptionalSavingsExpense,
+      exceptionalPensionContribution,
       eventTitles: eventsThisYear.map((ev) => ev.title || (ev.type === "expense" ? "Expense" : "Income")),
     });
 
@@ -1674,6 +1729,7 @@ function render() {
   renderSummary(projection);
   renderCustomFieldChooser();
   renderTable(projection);
+  renderPreRetirementTable(projection);
   renderChart(projection);
   scheduleChartRedraw(projection);
   saveState();
@@ -1685,6 +1741,7 @@ function renderProjectionOnly() {
   renderSummary(projection);
   renderCustomFieldChooser();
   renderTable(projection);
+  renderPreRetirementTable(projection);
   renderChart(projection);
   scheduleChartRedraw(projection);
   saveState();
@@ -1763,7 +1820,7 @@ function renderSpecialEventsPanel() {
 
   const header = document.createElement("div");
   header.className = "event-row event-row-header";
-  ["Year type", "Year", "Type", "Amount", "Routing", "Taxable", "Title / note", ""].forEach((text) => {
+  ["Year type", "Year", "Month", "Type", "Amount", "Routing", "Taxable", "Title / note", ""].forEach((text) => {
     const span = document.createElement("span");
     span.textContent = text;
     header.appendChild(span);
@@ -1790,6 +1847,18 @@ function renderSpecialEventsPanel() {
     yearInput.step = "1";
     yearInput.value = ev.year;
     yearInput.dataset.eventField = "year";
+
+    // Only meaningful for a "Pension contribution" (routing="pension") — used to prorate its
+    // first year's growth. Shown for every event for layout consistency; ignored otherwise.
+    const monthSelect = document.createElement("select");
+    monthSelect.dataset.eventField = "month";
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].forEach((label, idx) => {
+      const opt = document.createElement("option");
+      opt.value = String(idx + 1);
+      opt.textContent = label;
+      if ((Number(ev.month) || 1) === idx + 1) opt.selected = true;
+      monthSelect.appendChild(opt);
+    });
 
     const typeSelect = document.createElement("select");
     typeSelect.dataset.eventField = "type";
@@ -1818,7 +1887,7 @@ function renderSpecialEventsPanel() {
 
     const routingSelect = document.createElement("select");
     routingSelect.dataset.eventField = "routing";
-    [["drawdown", "Via pot"], ["savings", "Via savings"]].forEach(([val, label]) => {
+    [["drawdown", "Via pot"], ["savings", "Via savings"], ["pension", "Pen Contrib"]].forEach(([val, label]) => {
       const opt = document.createElement("option");
       opt.value = val;
       opt.textContent = label;
@@ -1864,7 +1933,7 @@ function renderSpecialEventsPanel() {
     delBtn.textContent = "×";
 
     actions.append(dupBtn, delBtn);
-    row.append(yearTypeSelect, yearInput, typeSelect, amountInput, routingSelect, taxableLabel, titleInput, actions);
+    row.append(yearTypeSelect, yearInput, monthSelect, typeSelect, amountInput, routingSelect, taxableLabel, titleInput, actions);
     return row;
   });
 
@@ -2304,6 +2373,7 @@ function getTableColumnSets() {
     ["exceptionalTaxableIncome", "Exceptional taxable income"],
     ["exceptionalSavingsIncome", "Exceptional income into savings"],
     ["exceptionalSavingsExpense", "Exceptional expense from savings"],
+    ["exceptionalPensionContribution", "Extra pension contribution"],
   ];
   const granularColumns = [
     ...granularBaseColumnsWithoutCrystallisation,
@@ -2521,6 +2591,7 @@ function getColumnCalculationNote(key, label) {
     exceptionalTaxableIncome: 'One-off taxable income from special events in this year, added to your taxable income and reducing the amount needed from the pension.',
     exceptionalSavingsIncome: 'One-off income routed directly into bank savings, bypassing the drawdown mechanism.',
     exceptionalSavingsExpense: 'One-off expense drawn directly from savings (bank first, then Premium Bonds, ISA, partner), bypassing the drawdown mechanism.',
+    exceptionalPensionContribution: 'One-off gross pension contribution from a special event. Pre-retirement, it grows from its month/year at the same tapered rate as the rest of the pot; post-retirement, it is added straight into the uncrystallised pot that year. Not available to cover spending — it only builds the pot.',
   };
   return `${label}: ${notes[key] || 'See projection logic for this column.'}`;
 }
@@ -2568,6 +2639,57 @@ function renderTable(projection) {
   });
 
   projectionBody.replaceChildren(...bodyRows);
+}
+
+const PRE_RETIREMENT_COLUMNS = [
+  ["calendarYear", "Calendar Year"],
+  ["age", "Age"],
+  ["totalPotAfterGrowth", "My Pension Pot"],
+  ["partnerPotAfterGrowth", "Partner Pension Pot"],
+  ["isaSavingsLeft", "ISA Savings"],
+  ["bankSavingsLeft", "Bank Savings"],
+  ["premiumBondsLeft", "Premium Bonds"],
+  ["partnerSavingsLeft", "Partner Savings"],
+  ["eventTitles", "Events"],
+];
+
+function renderPreRetirementTable(projection) {
+  if (uiState.collapsedPanels?.["Pre-retirement Details"]) return;
+  const rows = projection.preRetirementRows || [];
+
+  const headRow = document.createElement("tr");
+  PRE_RETIREMENT_COLUMNS.forEach(([, label]) => {
+    const th = document.createElement("th");
+    splitTableHeader(label).forEach((line) => {
+      const span = document.createElement("span");
+      span.textContent = line;
+      th.appendChild(span);
+    });
+    headRow.appendChild(th);
+  });
+  preRetirementTableHead.replaceChildren(headRow);
+
+  const bodyRows = rows.map((row) => {
+    const tr = document.createElement("tr");
+    PRE_RETIREMENT_COLUMNS.forEach(([key]) => {
+      const td = document.createElement("td");
+      td.dataset.key = key;
+      if (key === "calendarYear" || key === "age") {
+        td.textContent = String(Math.round(Number(row[key]) || 0));
+      } else if (key === "eventTitles") {
+        td.textContent = Array.isArray(row[key]) && row[key].length ? row[key].join(", ") : "—";
+      } else {
+        td.textContent = formatCurrency(row[key]);
+      }
+      tr.appendChild(td);
+    });
+    return tr;
+  });
+  preRetirementTableBody.replaceChildren(...bodyRows);
+
+  preRetirementTableCaption.textContent = rows.length
+    ? `Showing ${rows.length} year${rows.length === 1 ? "" : "s"} from ${rows[0].calendarYear} to retirement in ${projection.retirementYear}.`
+    : "No years before retirement — retirement starts this year.";
 }
 
 function splitTableHeader(label) {
@@ -3779,7 +3901,9 @@ function exportState() {
   const safeName = (suggestedName.trim() || "pension-forecaster-scenario").replace(/[^a-z0-9-_ ]/gi, "_");
   const rows = [["field", "value"]];
   Object.entries(state).forEach(([key, value]) => {
-    rows.push([key, String(value)]);
+    // Arrays/objects (e.g. specialEvents) need JSON, not String() — String([{...}]) collapses
+    // every entry to the useless literal text "[object Object]".
+    rows.push([key, value !== null && typeof value === "object" ? JSON.stringify(value) : String(value)]);
   });
   const payload = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
   const blob = new Blob([payload], { type: "text/csv;charset=utf-8" });
@@ -4385,6 +4509,13 @@ function importState(event) {
           const trimmedValue = value.trim();
           if (trimmedValue === "true" || trimmedValue === "false") {
             parsed[key] = trimmedValue === "true";
+          } else if (trimmedValue.startsWith("[") || trimmedValue.startsWith("{")) {
+            // Arrays/objects (e.g. specialEvents) are JSON-encoded on export — see exportState().
+            try {
+              parsed[key] = JSON.parse(trimmedValue);
+            } catch {
+              parsed[key] = value;
+            }
           } else if (trimmedValue !== "" && !Number.isNaN(Number(trimmedValue))) {
             parsed[key] = Number(trimmedValue);
           } else {
@@ -4737,6 +4868,7 @@ exportTableButton.addEventListener("click", () => { exportTableToExcel(); closeI
 exportFormulaButton.addEventListener("click", () => { exportFormulaWorkbookToExcel(); closeIoMenu(); });
 exportPdfButton.addEventListener("click", () => { exportPageToPdf(); closeIoMenu(); });
 exportPlanButton.addEventListener("click", () => { exportPlan(); closeIoMenu(); });
+exportCsvButton.addEventListener("click", () => { exportState(); closeIoMenu(); });
 resetButton.addEventListener("click", resetState);
 versionBadge.addEventListener("click", showVersionChangeDate);
 importFile.addEventListener("change", (e) => { importState(e); closeIoMenu(); });
@@ -5028,6 +5160,19 @@ specialEventsPanel.addEventListener("change", (e) => {
     ev[field] = field === "year"
       ? Math.max(1, Math.round(Number(rawVal) || 1))
       : Math.max(0, Number(rawVal) || 0);
+  } else if (field === "month") {
+    ev.month = Math.min(12, Math.max(1, Math.round(Number(e.target.value)) || 1));
+  } else if (field === "routing") {
+    ev.routing = e.target.value;
+    if (ev.routing === "pension") {
+      // A contribution is conceptually money going in — the calc no longer cares about Type for
+      // this routing, but flip it to Income so the row doesn't visually read as a contradiction.
+      ev.type = "income";
+      saveState();
+      renderSpecialEventsPanel();
+      renderProjectionOnly();
+      return;
+    }
   } else {
     ev[field] = e.target.value;
   }
@@ -5070,6 +5215,7 @@ document.getElementById("add-event-button").addEventListener("click", () => {
     id: `evt_${Date.now()}`,
     yearType: "relative",
     year: 1,
+    month: 1,
     type: "expense",
     amount: 0,
     taxable: false,
