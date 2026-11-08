@@ -14,8 +14,9 @@ python3 -m http.server 8765
 
 - Lets you edit core personal details such as pension pot, current age, and retirement age.
 - Recalculates the projection instantly as assumptions change.
-- Supports import and export of personal details as JSON, with legacy CSV/JSON import support.
-- Shows summary cards, a trend chart, and summarised, detailed, or granular year-by-year projection tables.
+- Supports import and export of personal details as JSON, plus a flat CSV export/import (including special events).
+- Shows summary cards, a trend chart, a **Pre-retirement Details** table (pots and savings each year until retirement), and summarised, detailed, or granular year-by-year projection tables.
+- Special events can be routed via the pension pot, via savings, or as a one-off **pension contribution** ("Pen Contrib") with a start month, which grows with the pot until retirement.
 - Includes a read-only **Optimiser** view that uses the current forecaster plan directly, without importing a separate plan export.
 - Uses friendly percentage inputs while keeping stored rates as decimals.
 - Adds a tax optimisation mode for drawdown planning that prioritises staying within the basic-rate band, using TFLS and then savings before higher-rate drawdown where possible.
